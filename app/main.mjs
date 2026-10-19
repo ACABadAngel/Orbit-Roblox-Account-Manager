@@ -211,7 +211,7 @@ async function action(name, arg = {}) {
     case 'window.maximize': win.isMaximized() ? win.unmaximize() : win.maximize(); return true;
     case 'window.close': win.close(); return true;
     case 'clipboard.copy': clipboard.writeText(text(arg.value, 4000)); return true;
-    case 'link.open': { const links = { froststrap: 'https://github.com/Froststrap/Froststrap', reference: 'https://github.com/ic3w0lf22/Roblox-Account-Manager', help: 'https://github.com/paulschenkenfelder31-debug/Orbit-Roblox-Account-Manager' }; if (!links[arg.id]) throw new Error('Unknown link.'); await shell.openExternal(links[arg.id]); return true; }
+    case 'link.open': { const links = { froststrap: 'https://github.com/Froststrap/Froststrap', reference: 'https://github.com/ic3w0lf22/Roblox-Account-Manager', help: 'https://github.com/ACABadAngel/Orbit-Roblox-Account-Manager' }; if (!links[arg.id]) throw new Error('Unknown link.'); await shell.openExternal(links[arg.id]); return true; }
     default: throw new Error('Unsupported Orbit action.');
   }
 }

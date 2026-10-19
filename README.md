@@ -22,11 +22,11 @@ Exit demo before connecting real accounts.
 
 ### Windows download
 
-Every successful [GitHub Actions build](https://github.com/paulschenkenfelder31-debug/Orbit-Roblox-Account-Manager/actions)
+Every successful [GitHub Actions build](https://github.com/ACABadAngel/Orbit-Roblox-Account-Manager/actions)
 uploads an **Orbit-Windows** artifact containing:
 
-- `Orbit-Setup-0.1.0-x64.exe`: installer.
-- `Orbit-Portable-0.1.0-x64.exe`: portable application.
+- `Orbit-Setup-0.1.1-x64.exe`: installer.
+- `Orbit-Portable-0.1.1-x64.exe`: portable application.
 
 Open the latest successful run and download the artifact at the bottom of its
 page. These initial builds are unsigned; Windows may show a publisher warning.
