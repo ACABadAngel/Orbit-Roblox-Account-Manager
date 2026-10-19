@@ -38,7 +38,21 @@ export function peerRequest(peer, secret, path, body) {
     req.on('timeout', () => req.destroy(new Error('Host did not respond.'))); req.on('error', reject); if (payload) req.write(payload); req.end();
   });
 }
-export async function certificate() { const cert = await generate([{ name: 'commonName', value: 'Orbit Host' }], { keySize: 2048, algorithm: 'sha256', days: 365 }); return { key: cert.private, cert: cert.cert }; }
+export async function certificate() {
+  // BoringSSL (Electron) requires a CA-capable self-signed trust anchor when
+  // supplied through the TLS `ca` option. This certificate is trusted only by
+  // exact fingerprint in Orbit, never installed in the system certificate store.
+  const cert = await generate([{ name: 'commonName', value: 'Orbit Host' }], {
+    keySize: 2048, algorithm: 'sha256', days: 365,
+    extensions: [
+      { name: 'basicConstraints', cA: true },
+      { name: 'keyUsage', keyCertSign: true, digitalSignature: true, keyEncipherment: true },
+      { name: 'extKeyUsage', serverAuth: true },
+      { name: 'subjectAltName', altNames: [{ type: 2, value: 'localhost' }, { type: 7, ip: '127.0.0.1' }] }
+    ]
+  });
+  return { key: cert.private, cert: cert.cert };
+}
 export async function startHost({ identity, token, port, bind, route }) {
   const counts = new Map();
   const server = https.createServer({ ...identity, minVersion: 'TLSv1.2', requestTimeout: 15000, headersTimeout: 10000 }, async (req, res) => {

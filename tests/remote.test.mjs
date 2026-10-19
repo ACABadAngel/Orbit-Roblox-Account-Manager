@@ -7,6 +7,7 @@ test('pairing rejects credential-bearing, non-HTTPS and path-based addresses', (
 });
 test('paired HTTPS authenticates, pins certificates, and rejects a wrong token or fingerprint', async () => {
   const identity = await certificate(), token = 'test-token';
+  assert.equal(new X509Certificate(identity.cert).ca, true);
   const host = await startHost({ identity, token, port: 0, bind: '127.0.0.1', route: async (method, path) => ({ method, path, accounts: [] }) });
   try {
     const address = `https://127.0.0.1:${host.address().port}`, fp = fingerprint(new X509Certificate(identity.cert).raw);
