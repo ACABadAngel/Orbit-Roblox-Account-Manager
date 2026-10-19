@@ -1,0 +1,52 @@
+name: Validate and build Orbit
+on:
+  push:
+    branches: [main, 'codex/**']
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run check
+      - run: npm test
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:ui
+  windows:
+    runs-on: windows-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Parse the Windows helper
+        shell: powershell
+        run: |
+          $tokens = $null
+          $parseErrors = $null
+          [void][System.Management.Automation.Language.Parser]::ParseFile((Resolve-Path app/native/windows.ps1), [ref]$tokens, [ref]$parseErrors)
+          if ($parseErrors.Count -gt 0) { $parseErrors | Format-List; exit 1 }
+          '{"id":1,"op":"list"}' | powershell.exe -NoProfile -NonInteractive -File app/native/windows.ps1 | Out-File native-result.json
+          $r = Get-Content native-result.json -Raw | ConvertFrom-Json
+          if ($r.error -or $r.id -ne 1) { throw 'Windows helper smoke check failed.' }
+      - run: npm run test:desktop
+      - run: npm run dist -- --publish never
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Orbit-Windows
+          path: release/*.exe
+          if-no-files-found: error

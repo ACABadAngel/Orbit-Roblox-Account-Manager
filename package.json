@@ -1,0 +1,62 @@
+{
+  "name": "orbit-roblox-account-manager",
+  "version": "0.1.0",
+  "description": "A calm workspace for your Roblox accounts, machines, and live sessions.",
+  "type": "module",
+  "main": "app/main.mjs",
+  "author": "Paul Schenkenfelder",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test tests/*.test.mjs",
+    "check": "node scripts/check.mjs",
+    "preview": "node scripts/preview.mjs",
+    "test:ui": "node scripts/ui-smoke.mjs",
+    "test:desktop": "node scripts/desktop-smoke.mjs",
+    "dist": "electron-builder --win nsis portable",
+    "pack": "electron-builder --dir"
+  },
+  "dependencies": {
+    "selfsigned": "^5.2.0"
+  },
+  "devDependencies": {
+    "electron": "^44.9.0",
+    "electron-builder": "^26.0.12",
+    "playwright": "^1.62.1"
+  },
+  "build": {
+    "appId": "net.paul.orbit",
+    "productName": "Orbit",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "app/**/*",
+      "package.json",
+      "LICENSE",
+      "THIRD_PARTY_NOTICES.md"
+    ],
+    "asarUnpack": [
+      "app/native/**"
+    ],
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ],
+      "icon": "build/icon.ico"
+    },
+    "portable": {
+      "artifactName": "Orbit-Portable-${version}-${arch}.${ext}"
+    },
+    "nsis": {
+      "artifactName": "Orbit-Setup-${version}-${arch}.${ext}",
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true
+    }
+  }
+}
