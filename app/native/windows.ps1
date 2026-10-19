@@ -104,8 +104,9 @@ function Restore-Game {
   if ($null -eq $saved) { return }
   try { $h = Assert-Window $saved.window } catch { $script:docked = $null; return }
   [void][OrbitWindow]::SetParent($h, $saved.parent)
-  if ([OrbitWindow]::GetParent($h) -ne $saved.parent) { throw 'Could not restore the separate Roblox window. Keep Orbit open and retry Return to preview.' }
   [void][OrbitWindow]::SetWindowLong($h, -16, $saved.style)
+  # After removing WS_CHILD, GetParent reports the original top-level owner.
+  if ([OrbitWindow]::GetParent($h) -ne $saved.parent) { throw 'Could not restore the separate Roblox window. Keep Orbit open and retry Return to preview.' }
   $r = $saved.rect
   [void][OrbitWindow]::SetWindowPos($h, [IntPtr]::Zero, $r.Left, $r.Top, $r.Right - $r.Left, $r.Bottom - $r.Top, 0x0034)
   $placement = $saved.placement
