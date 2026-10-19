@@ -1,0 +1,8 @@
+node_modules/
+release/
+coverage/
+test-results/
+*.log
+.DS_Store
+orbit-data/
+docs/screenshots/*.png

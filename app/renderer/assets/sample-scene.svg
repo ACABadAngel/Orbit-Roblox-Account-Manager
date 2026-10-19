@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 450">
+<defs><linearGradient id="s" x2="0" y2="1"><stop stop-color="#69badd"/><stop offset="1" stop-color="#b5e4de"/></linearGradient><linearGradient id="w" x2="0" y2="1"><stop stop-color="#338f99"/><stop offset="1" stop-color="#1d647b"/></linearGradient></defs>
+<path fill="url(#s)" d="M0 0h800v450H0z"/><path fill="#e5f1e9" opacity=".65" d="m80 78 65-12 48 12-10 12H50zm440-34 40-14 58 8 20 14h-130Z"/>
+<path fill="url(#w)" d="M0 230h800v220H0z"/><path fill="#559fa4" d="m0 249 163-12 80 17 201-11 137 12 219-8v8l-219 9-137-13-201 12-80-18L0 257Z"/>
+<path fill="#616f72" d="m390 235 40-125 35-16 20 11 9-38 50 3 35 34 20 76 41 55Z"/><path fill="#7e8985" d="m430 110 35-16 20 11 9-38 50 3-18 85-46 16-37 64h-43Z"/><path fill="#a3b4a2" d="m494 67 50 3 35 34-37-9-34 12-23-2Zm-64 43 35-16 20 11-37 29Z"/>
+<path fill="#ddc797" d="m0 285 150-51 174-9 118 26-30 32-153 35L0 332Z"/><path fill="#5a8a62" d="m52 255 98-21 174-9 88 21-102 25-118 12Z"/>
+<path fill="#b39874" d="M0 332 259 318 412 283v27L260 347 0 369Z"/>
+<path fill="#a37855" d="m248 317 171-47 203 180H100Z"/><path fill="#7e5f47" d="m248 317 171-47 2 9-161 46L116 450h-16ZM173 384l342-16 8 8-359 16Zm-43 48 445-20 8 9-460 19Z"/>
+<path fill="#644d3b" d="m250 319 12-3v69h-12zm166-50 12-3v55h-12zM149 405h13v45h-13zm389-21h13v66h-13z"/>
+<path fill="#9a7850" d="m174 265 12-132 10-1-2 134Z"/><path fill="#3b8259" d="m187 139-60-13-37 12 15-29 50-4 35 20-6-48 18-23 8 21-7 47 39-26 43 8 19 26-48-11-42 20 34 11 21 37-34-19-33-17-12 40-20 14 8-41Z"/>
+<path fill="#c8b18a" d="M55 242v-60l42-27 42 27v53Z"/><path fill="#655049" d="m43 182 54-42 54 42Zm37 57v-43h26v43Z"/>
+<path fill="#334247" d="m355 299 30-14 29 15 5 56-64 6Z"/><path fill="#212c33" d="m355 354 29-2 2 65-32 6Zm32-2 30-1 11 62-33 5Z"/><path fill="#e1c19f" d="M362 262h39v36h-39Zm-27 40 20 1-3 56-19-2Zm80-1 18 7 8 48-19 3Z"/><path fill="#2b3034" d="m357 263 3-15 45 1 5 25-12-8-39 6Z"/>
+<rect x="20" y="20" width="140" height="30" rx="15" fill="#102c3b" opacity=".8"/><circle cx="37" cy="35" r="4" fill="#59e4ac"/><text x="49" y="40" font-family="sans-serif" font-size="13" fill="#eaf3f0">Sample game scene</text>
+<text x="25" y="423" font-family="sans-serif" font-size="12" fill="#e2eeeb">Illustration · not a live Roblox session</text>
+</svg>
