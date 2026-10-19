@@ -8,7 +8,8 @@ from either reference project.
   launches to an installed Froststrap executable or registered protocol handler.
 - [Roblox Account Manager](https://github.com/ic3w0lf22/Roblox-Account-Manager),
   GPL-3.0: account-group and queued-launch workflow reference; the public
-  authentication-ticket/protocol flow was inspected for interoperability.
+  authentication-ticket/protocol flow and published Windows singleton name
+  were inspected for interoperability. All helper code was written independently.
   The archived manager is not bundled or required.
 - Electron and electron-builder: MIT. selfsigned: MIT. Transitive dependency
   notices are included by the packaging tool as applicable.

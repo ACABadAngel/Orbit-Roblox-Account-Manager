@@ -21,5 +21,5 @@ export class NativeHost {
       this.worker.stdin.write(JSON.stringify({ ...payload, id, op }) + '\n');
     });
   }
-  close() { this.worker?.kill(); }
+  async close() { if (!this.worker) return; const worker = this.worker; await this.call('shutdown').catch(() => {}); worker.stdin.end(); const timer = setTimeout(() => worker.kill(), 2000); timer.unref(); }
 }

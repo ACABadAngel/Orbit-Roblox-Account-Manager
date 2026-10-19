@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.2.0
+
+- Add native same-PC play inside Orbit. The selected Roblox window uses its own
+  rendering and input rather than the low-rate preview. Closing the player or
+  Orbit restores the original separate window.
+- Enable multiple-session mode by default, reserving Windows singleton names
+  before Roblox starts. Conflicting owners pause launches with instructions.
+- Serialize launch-to-window attribution so simultaneous sessions do not
+  accidentally attach the same native window to different accounts.
+- Keep docked child windows visible to account discovery and disconnect checks.
+- Deduplicate and cap notifications; block repeated play requests while pending.
+- Add local-play lifecycle tests and Windows fixture checks for two independent
+  sessions, native embedding/resizing, mutex conflicts and window restoration.
+
+Real Roblox gameplay and launcher compatibility still require a manual check.
+Close all Roblox clients before opening this update, then launch from Orbit.
+Account data and profiles are preserved.
+
 ## 0.1.1
 
 - Fix launch ticket requests returning HTTP 415: send an explicit JSON content

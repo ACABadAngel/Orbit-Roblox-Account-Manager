@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 
 export const STATUSES = ['idle', 'queued', 'launching', 'awaiting-window', 'running', 'disconnected', 'verification', 'expired', 'error'];
-export const DEFAULTS = Object.freeze({ launchDelayMs: 15000, maxConcurrent: 1, launcherPath: '', theme: 'dark', previewFps: 3, hostEnabled: false, hostPort: 43128, hostBind: '127.0.0.1', allowRemoteControl: false });
+export const DEFAULTS = Object.freeze({ launchDelayMs: 15000, maxConcurrent: 1, launcherPath: '', theme: 'dark', previewFps: 3, multiSession: true, hostEnabled: false, hostPort: 43128, hostBind: '127.0.0.1', allowRemoteControl: false });
 export const initialState = () => ({ version: 1, accounts: [], groups: ['Main', 'Trading', 'Testing'], profiles: [{ id: 'default', name: 'Default', placeId: '', jobId: '' }], settings: { ...DEFAULTS }, peers: [], schedules: [], activity: [] });
 export function text(value, max = 120) { if (typeof value !== 'string' || value.length > max) throw new Error('Invalid text value.'); return value.trim(); }
 export function identifier(value) { if (typeof value !== 'string' || !/^[a-zA-Z0-9_-]{1,100}$/.test(value) || ['__proto__', 'constructor', 'prototype'].includes(value)) throw new Error('Invalid identifier.'); return value; }
@@ -19,7 +19,7 @@ export function validateSettings(input, previous = DEFAULTS) {
   if ('previewFps' in input) s.previewFps = number(input.previewFps, 1, 10) | 0;
   if ('launcherPath' in input) { s.launcherPath = text(input.launcherPath, 1024); if (s.launcherPath && !/^[a-zA-Z]:\\.+\.exe$/i.test(s.launcherPath)) throw new Error('Choose a Windows launcher .exe.'); }
   if ('theme' in input) { if (!['dark', 'light'].includes(input.theme)) throw new Error('Invalid theme.'); s.theme = input.theme; }
-  for (const key of ['hostEnabled', 'allowRemoteControl']) if (key in input) { if (typeof input[key] !== 'boolean') throw new Error('Invalid switch.'); s[key] = input[key]; }
+  for (const key of ['hostEnabled', 'allowRemoteControl', 'multiSession']) if (key in input) { if (typeof input[key] !== 'boolean') throw new Error('Invalid switch.'); s[key] = input[key]; }
   if ('hostPort' in input) s.hostPort = number(input.hostPort, 1024, 65535) | 0;
   if ('hostBind' in input) { if (!['127.0.0.1', '0.0.0.0'].includes(input.hostBind)) throw new Error('Invalid listening address.'); s.hostBind = input.hostBind; }
   return s;

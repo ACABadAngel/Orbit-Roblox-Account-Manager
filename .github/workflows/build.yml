@@ -42,6 +42,7 @@ jobs:
           $r = Get-Content native-result.json -Raw | ConvertFrom-Json
           if ($r.error -or $r.id -ne 1) { throw 'Windows helper smoke check failed.' }
       - run: npm run test:desktop
+      - run: node scripts/local-play-smoke.mjs
       - run: npm run dist -- --publish never
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'

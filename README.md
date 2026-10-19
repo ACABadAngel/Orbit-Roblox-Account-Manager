@@ -25,8 +25,8 @@ Exit demo before connecting real accounts.
 Every successful [GitHub Actions build](https://github.com/ACABadAngel/Orbit-Roblox-Account-Manager/actions)
 uploads an **Orbit-Windows** artifact containing:
 
-- `Orbit-Setup-0.1.1-x64.exe`: installer.
-- `Orbit-Portable-0.1.1-x64.exe`: portable application.
+- `Orbit-Setup-0.2.0-x64.exe`: installer.
+- `Orbit-Portable-0.2.0-x64.exe`: portable application.
 
 Open the latest successful run and download the artifact at the bottom of its
 page. These initial builds are unsigned; Windows may show a publisher warning.
@@ -82,9 +82,38 @@ configurable 1–10 FPS target, rather than a video codec. Actual rate depends o
 capture speed and network latency. Audio, relative/pointer-lock camera input,
 and gamepad input are not implemented. Roblox must be restored on the host;
 minimized/locked-desktop and some GPU configurations may not capture correctly.
-On the same PC, **Take control** brings the actual game window forward for
-direct play. Use a private LAN or VPN for machine pairing; no relay, NAT traversal,
+For same-PC play, **Remote Play → Play here** embeds the actual native Roblox
+window inside Orbit. This uses the game's own rendering, sound, and normal OS
+input; the 1–10 FPS preview setting does not limit it. Click inside to focus the
+game. **Return to preview** or **Close session** restores the original separate
+window, including its position and window state. Use windowed mode and run Orbit
+and Roblox at the same permission level. Fullscreen changes made by the game,
+DPI differences, or client updates may affect embedding. Only the selected game
+is embedded; other sessions keep their separate windows.
+
+Use a private LAN or VPN for machine pairing; no relay, NAT traversal,
 or public-host discovery is provided.
+
+## Multiple sessions on one PC
+
+1. Close **all** Roblox clients and other multi-instance managers.
+2. Open Orbit first. **Settings → Multiple sessions** is enabled by default,
+   including when upgrading an existing workspace.
+3. Launch different accounts from Orbit, leaving Orbit open while playing.
+
+Orbit's persistent Windows helper reserves the named singleton objects before
+launching clients. If another process already owns them, launches pause with
+instructions instead of knowingly replacing an existing session. Handoffs are
+serialized until a new window can be attributed to its account; queued accounts
+then remain open simultaneously. Launch concurrency is not the number of running
+clients. You can play one selected local window at a time.
+
+Compatibility depends on the Roblox client and selected launcher. The Windows
+checks exercise two independent test windows and helper ownership; they do not
+prove multi-account Roblox gameplay. If your launcher closes existing clients,
+try the registered Roblox handler by clearing the custom launcher selection.
+Orbit does not patch the client, close handles in other processes, or change
+Roblox verification behavior.
 
 ## Launch queue and verification
 

@@ -4,6 +4,42 @@ using System;
 using System.Text;
 using System.Runtime.InteropServices;
 public static class OrbitWindow {
+  [DllImport("kernel32.dll", CharSet=CharSet.Unicode, SetLastError=true)] public static extern IntPtr CreateMutex(IntPtr attr, bool own, string name);
+  [DllImport("kernel32.dll")] public static extern bool ReleaseMutex(IntPtr h);
+  [DllImport("kernel32.dll")] public static extern bool CloseHandle(IntPtr h);
+  [DllImport("user32.dll")] public static extern bool IsWindow(IntPtr h);
+  [DllImport("user32.dll", SetLastError=true)] public static extern IntPtr SetParent(IntPtr child, IntPtr parent);
+  [DllImport("user32.dll")] public static extern IntPtr GetParent(IntPtr h);
+  [DllImport("user32.dll", EntryPoint="GetWindowLongW")] public static extern int GetWindowLong(IntPtr h, int index);
+  [DllImport("user32.dll", EntryPoint="SetWindowLongW")] public static extern int SetWindowLong(IntPtr h, int index, int value);
+  [DllImport("user32.dll", SetLastError=true)] public static extern bool SetWindowPos(IntPtr h, IntPtr after, int x, int y, int w, int height, uint flags);
+  [StructLayout(LayoutKind.Sequential)] public struct PLACEMENT { public int length, flags, show; public POINT min, max; public RECT normal; }
+  [DllImport("user32.dll")] public static extern bool GetWindowPlacement(IntPtr h, ref PLACEMENT p);
+  [DllImport("user32.dll")] public static extern bool SetWindowPlacement(IntPtr h, ref PLACEMENT p);
+  [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr h, out RECT r);
+  // Reserve both published singleton names before a Roblox client starts.
+  // No game process memory or existing process handles are modified.
+  private static readonly System.Collections.Generic.List<IntPtr> multi = new System.Collections.Generic.List<IntPtr>();
+  public static bool EnableMulti() {
+    if (multi.Count == 2) return true;
+    try {
+      foreach (string name in new [] { "ROBLOX_singletonMutex", "ROBLOX_singletonEvent" }) {
+        IntPtr h = CreateMutex(IntPtr.Zero, true, name);
+        int error = Marshal.GetLastWin32Error();
+        if (h == IntPtr.Zero) {
+          if (error == 6 || error == 5) { DisableMulti(); return false; }
+          throw new System.ComponentModel.Win32Exception(error);
+        }
+        if (error == 183) { CloseHandle(h); DisableMulti(); return false; }
+        multi.Add(h);
+      }
+      return true;
+    } catch { DisableMulti(); throw; }
+  }
+  public static void DisableMulti() {
+    foreach (IntPtr h in multi) { ReleaseMutex(h); CloseHandle(h); }
+    multi.Clear();
+  }
   public delegate bool EnumProc(IntPtr h, IntPtr p);
   [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left, Top, Right, Bottom; }
   [StructLayout(LayoutKind.Sequential)] public struct POINT { public int X, Y; }
@@ -24,32 +60,70 @@ public static class OrbitWindow {
 }
 '@
 
+$script:docked = $null
+
+function Read-RobloxWindow([IntPtr]$h) {
+  if (-not [OrbitWindow]::IsWindow($h)) { return $null }
+  [uint32]$ownerId = 0
+  [void][OrbitWindow]::GetWindowThreadProcessId($h, [ref]$ownerId)
+  try {
+    $proc = Get-Process -Id $ownerId -ErrorAction Stop
+    if ($proc.ProcessName -ne 'RobloxPlayerBeta') { return $null }
+    $title = [System.Text.StringBuilder]::new(512)
+    [void][OrbitWindow]::GetWindowText($h, $title, 512)
+    return @{ hwnd = $h.ToInt64().ToString(); pid = [int]$ownerId; started = $proc.StartTime.ToUniversalTime().Ticks.ToString(); title = $title.ToString(); minimized = [OrbitWindow]::IsIconic($h) }
+  } catch { return $null }
+}
+
 function Get-RobloxWindows {
   $script:found = [System.Collections.Generic.List[object]]::new()
   $cb = [OrbitWindow+EnumProc]{ param($h, $unused)
     if ([OrbitWindow]::IsWindowVisible($h)) {
-      [uint32]$ownerId = 0
-      [void][OrbitWindow]::GetWindowThreadProcessId($h, [ref]$ownerId)
-      try {
-        $proc = Get-Process -Id $ownerId -ErrorAction Stop
-        if ($proc.ProcessName -eq 'RobloxPlayerBeta') {
-          $title = [System.Text.StringBuilder]::new(512)
-          [void][OrbitWindow]::GetWindowText($h, $title, 512)
-          $script:found.Add(@{ hwnd = $h.ToInt64().ToString(); pid = [int]$ownerId; started = $proc.StartTime.ToUniversalTime().Ticks.ToString(); title = $title.ToString(); minimized = [OrbitWindow]::IsIconic($h) })
-        }
-      } catch { }
+      $value = Read-RobloxWindow $h
+      if ($null -ne $value) { $script:found.Add($value) }
     }
     return $true
   }
   [void][OrbitWindow]::EnumWindows($cb, [IntPtr]::Zero)
+  # EnumWindows excludes child windows; keep a docked game in window discovery.
+  if ($null -ne $script:docked) {
+    $value = Read-RobloxWindow $script:docked.handle
+    if ($null -ne $value -and -not ($script:found | Where-Object { $_.hwnd -eq $value.hwnd })) { $script:found.Add($value) }
+  }
   return $script:found.ToArray()
 }
 
 function Assert-Window($value) {
-  $match = @(Get-RobloxWindows | Where-Object { $_.hwnd -eq $value.hwnd -and $_.pid -eq $value.pid -and $_.started -eq $value.started })
-  if ($match.Count -ne 1) { throw 'The attached Roblox window is no longer available.' }
+  $current = Read-RobloxWindow ([IntPtr]::new([long]$value.hwnd))
+  if ($null -eq $current -or $current.pid -ne $value.pid -or $current.started -ne $value.started) { throw 'The attached Roblox window is no longer available.' }
   return [IntPtr]::new([long]$value.hwnd)
 }
+
+function Restore-Game {
+  $saved = $script:docked
+  if ($null -eq $saved) { return }
+  $script:docked = $null
+  try { $h = Assert-Window $saved.window } catch { return }
+  [void][OrbitWindow]::SetParent($h, $saved.parent)
+  [void][OrbitWindow]::SetWindowLong($h, -16, $saved.style)
+  $r = $saved.rect
+  [void][OrbitWindow]::SetWindowPos($h, [IntPtr]::Zero, $r.Left, $r.Top, $r.Right - $r.Left, $r.Bottom - $r.Top, 0x0034)
+  $placement = $saved.placement
+  [void][OrbitWindow]::SetWindowPlacement($h, [ref]$placement)
+}
+function Resize-Game($bounds) {
+  if ($null -eq $script:docked) { throw 'No local game is open.' }
+  $h = Assert-Window $script:docked.window
+  $r = [OrbitWindow+RECT]::new()
+  if (-not [OrbitWindow]::GetClientRect($script:docked.host, [ref]$r)) { throw 'Orbit window closed.' }
+  # Convert browser CSS coordinates using the real native client size. This also
+  # handles Windows scaling and browser zoom without virtualized screen offsets.
+  $sx = $r.Right / [double]$bounds.viewportWidth
+  $sy = $r.Bottom / [double]$bounds.viewportHeight
+  if (-not [OrbitWindow]::SetWindowPos($h, [IntPtr]::Zero, [int]($bounds.x * $sx), [int]($bounds.y * $sy), [int]($bounds.width * $sx), [int]($bounds.height * $sy), 0x0064)) { throw 'Could not resize the game window.' }
+}
+
+try {
 
 while ($null -ne ($line = [Console]::ReadLine())) {
   $request = $null
@@ -57,6 +131,36 @@ while ($null -ne ($line = [Console]::ReadLine())) {
     $request = $line | ConvertFrom-Json
     $result = $null
     switch ($request.op) {
+      'multi.enable' {
+        if (-not [OrbitWindow]::EnableMulti()) { throw 'Close ALL Roblox windows, then retry. Orbit must enable multiple sessions before Roblox starts. Another multi-instance manager may also be holding the session lock.' }
+        $result = $true
+      }
+      'multi.disable' { [OrbitWindow]::DisableMulti(); $result = $true }
+      'dock' {
+        if ($null -ne $script:docked) { throw 'Close the current local play session first.' }
+        $h = Assert-Window $request.window
+        $hostWindow = [IntPtr]::new([long]$request.host)
+        if (-not [OrbitWindow]::IsWindow($hostWindow)) { throw 'Orbit window is unavailable.' }
+        $rect = [OrbitWindow+RECT]::new()
+        [void][OrbitWindow]::GetWindowRect($h, [ref]$rect)
+        $placement = [OrbitWindow+PLACEMENT]::new()
+        $placement.length = [System.Runtime.InteropServices.Marshal]::SizeOf($placement)
+        [void][OrbitWindow]::GetWindowPlacement($h, [ref]$placement)
+        $script:docked = @{ placement = $placement; handle = $h; window = $request.window; host = $hostWindow; parent = [OrbitWindow]::GetParent($h); style = [OrbitWindow]::GetWindowLong($h, -16); rect = $rect; minimized = [OrbitWindow]::IsIconic($h) }
+        try {
+          [void][OrbitWindow]::ShowWindow($h, 9)
+          # WS_CHILD; remove WS_POPUP, caption and thick sizing frame.
+          $style = (($script:docked.style -band 0xffffffffL) -band (-bnot 0x80C40000L)) -bor 0x40000000L
+          [void][OrbitWindow]::SetWindowLong($h, -16, [int]$style)
+          [void][OrbitWindow]::SetParent($h, $hostWindow)
+          if ([OrbitWindow]::GetParent($h) -ne $hostWindow) { throw 'Windows could not embed Roblox. Run Orbit and Roblox at the same permission level and use windowed mode.' }
+          Resize-Game $request.bounds
+          $result = $true
+        } catch { Restore-Game; throw }
+      }
+      'dock.resize' { Resize-Game $request.bounds; $result = $true }
+      'undock' { Restore-Game; $result = $true }
+      'shutdown' { Restore-Game; [OrbitWindow]::DisableMulti(); $result = $true }
       'list' { $result = @(Get-RobloxWindows) }
       'close' { $h = Assert-Window $request.window; [void][OrbitWindow]::PostMessage($h, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero); $result = $true }
       'focus' { $h = Assert-Window $request.window; [void][OrbitWindow]::ShowWindow($h, 9); $result = [OrbitWindow]::SetForegroundWindow($h) }
@@ -94,3 +198,5 @@ while ($null -ne ($line = [Console]::ReadLine())) {
     [Console]::WriteLine((@{ id = $request.id; result = $result } | ConvertTo-Json -Compress -Depth 8))
   } catch { [Console]::WriteLine((@{ id = $request.id; error = $_.Exception.Message } | ConvertTo-Json -Compress)) }
 }
+
+} finally { Restore-Game; [OrbitWindow]::DisableMulti() }

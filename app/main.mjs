@@ -9,6 +9,8 @@ import { Store, encryptBackup, decryptBackup } from './core/storage.mjs';
 import { activity, publicAccount, text, identifier, validateSettings, validateProfile, validateSchedule, validateState, makeLaunchUri } from './core/model.mjs';
 import { authenticationTicket, authenticatedUser, avatarFor } from './core/roblox.mjs';
 import { LaunchQueue } from './core/queue.mjs';
+import { setTimeout as delay } from 'node:timers/promises';
+import { LocalPlay } from './core/local-play.mjs';
 import { NativeHost } from './core/native.mjs';
 import { startHost, certificate, fingerprint, parsePeer, pinCertificate, peerRequest } from './core/remote.mjs';
 
@@ -17,7 +19,8 @@ if (!app.isPackaged && process.env.ORBIT_TEST_DATA) app.setPath('userData', proc
 let win, store, queue, server, hostError = '', quitting = false, pollsBusy = false;
 const native = new NativeHost(), logins = new Map(), peerStates = new Map(), frames = new Map(), remoteLeases = new Map();
 let localMetrics = { id: 'local', name: os.hostname(), online: true, cpu: 0, ram: 0, totalRam: os.totalmem(), platform: process.platform };
-let previousCpu = os.cpus(), lease = null;
+const localPlay = new LocalPlay(native);
+let previousCpu = os.cpus(), lease = null, launchHandoff = Promise.resolve(), controlPending = false;
 const get = id => { const a = store.state.accounts.find(a => a.id === identifier(id)); if (!a) throw new Error('Account not found.'); return a; };
 const persist = () => store.save();
 const emit = () => { if (win && !win.isDestroyed()) win.webContents.send('orbit:changed'); };
@@ -26,16 +29,25 @@ function encryptionReady() { return safeStorage.isEncryptionAvailable() && (proc
 function snapshot(localOnly = false) {
   const s = store.state;
   const remote = localOnly ? [] : [...peerStates.entries()].flatMap(([peerId, state]) => (state.accounts || []).map(a => ({ ...a, id: `${peerId}:${a.id}`, remoteId: a.id, peerId, machineId: peerId, status: state.online ? a.status : 'unknown' })));
-  return { version: s.version, accounts: [...s.accounts.map(publicAccount), ...remote], groups: s.groups, profiles: s.profiles, settings: s.settings, machines: [{ ...localMetrics, accounts: s.accounts.length, running: s.accounts.filter(a => a.status === 'running').length }, ...(localOnly ? [] : s.peers.map(p => { const r = peerStates.get(p.id); return { id: p.id, name: p.name, address: p.address, online: Boolean(r?.online), cpu: r?.machine?.cpu || 0, ram: r?.machine?.ram || 0, totalRam: r?.machine?.totalRam || 0, accounts: r?.accounts?.length || 0, running: r?.accounts?.filter(a => a.status === 'running').length || 0, lastSeen: r?.lastSeen, error: r?.error || '' }; }))], queue: queue.snapshot, schedules: s.schedules, activity: s.activity, host: { enabled: Boolean(server), error: hostError, address: `https://${s.settings.hostBind === '0.0.0.0' ? (Object.values(os.networkInterfaces()).flat().find(i => i && i.family === 'IPv4' && !i.internal)?.address || os.hostname()) : '127.0.0.1'}:${s.settings.hostPort}` }, secureStorage: encryptionReady(), platform: process.platform };
+  return { localPlayId: localOnly ? null : localPlay.current, version: s.version, accounts: [...s.accounts.map(publicAccount), ...remote], groups: s.groups, profiles: s.profiles, settings: s.settings, machines: [{ ...localMetrics, accounts: s.accounts.length, running: s.accounts.filter(a => a.status === 'running').length }, ...(localOnly ? [] : s.peers.map(p => { const r = peerStates.get(p.id); return { id: p.id, name: p.name, address: p.address, online: Boolean(r?.online), cpu: r?.machine?.cpu || 0, ram: r?.machine?.ram || 0, totalRam: r?.machine?.totalRam || 0, accounts: r?.accounts?.length || 0, running: r?.accounts?.filter(a => a.status === 'running').length || 0, lastSeen: r?.lastSeen, error: r?.error || '' }; }))], queue: queue.snapshot, schedules: s.schedules, activity: s.activity, host: { enabled: Boolean(server), error: hostError, address: `https://${s.settings.hostBind === '0.0.0.0' ? (Object.values(os.networkInterfaces()).flat().find(i => i && i.family === 'IPv4' && !i.internal)?.address || os.hostname()) : '127.0.0.1'}:${s.settings.hostPort}` }, secureStorage: encryptionReady(), platform: process.platform };
 }
 async function launch(id, cancelled) {
+  // Attribute each newly created window before handing off the next launch.
+  const previous = launchHandoff; let finish;
+  launchHandoff = new Promise(resolve => { finish = resolve; });
+  await previous;
+  try { if (!cancelled()) await launchOne(id, cancelled); } finally { finish(); }
+}
+async function launchOne(id, cancelled) {
   const a = get(id), s = store.state;
   try {
     if (process.platform !== 'win32') throw new Error('Launching Roblox requires Windows.');
     const profile = s.profiles.find(p => p.id === a.profileId) || s.profiles[0]; if (!profile?.placeId) throw new Error('Set a place ID in Settings → Launch profiles.');
     const cookie = store.secrets.accounts?.[id]; if (!cookie) throw new Error('Sign in again to connect this account.');
     a.status = 'launching'; a.error = ''; emit();
+    if (s.settings.multiSession) await native.call('multi.enable').catch(e => { e.pauseQueue = true; throw e; });
     const before = await native.call('list');
+    if (!s.settings.multiSession && before.length) throw new Error('A Roblox session is already open. Enable multiple sessions in Settings before launching another account.');
     const ticket = await authenticationTicket(cookie, profile.placeId);
     if (cancelled()) { a.status = 'idle'; return; }
     const uri = makeLaunchUri(ticket, profile);
@@ -47,13 +59,19 @@ async function launch(id, cancelled) {
     log(`Launch sent for ${a.username}. Waiting for its Roblox window.`, 'info', id);
     // A launch handoff is not proof of a running game. Only attach one unambiguous new window.
     const known = new Set(before.map(w => `${w.hwnd}:${w.started}`));
-    let attempts = 0;
-    const watch = setInterval(async () => {
-      if (++attempts > 20 || cancelled() || a.status !== 'awaiting-window') return clearInterval(watch);
-      try { const windows = await native.call('list'); const added = windows.filter(w => !known.has(`${w.hwnd}:${w.started}`) && !s.accounts.some(other => other.id !== id && other.window?.hwnd === w.hwnd));
-        if (added.length === 1) { a.window = added[0]; a.status = 'running'; a.startedAt = Date.now(); a.lastSeen = Date.now(); clearInterval(watch); log(`${a.username} connected to a Roblox window.`, 'info', id); await persist(); }
-      } catch { clearInterval(watch); } emit();
-    }, 2000); watch.unref();
+    for (let attempts = 0; attempts < 40; attempts++) {
+      await delay(1000);
+      if (cancelled() || a.status !== 'awaiting-window') return;
+      const list = await native.call('list');
+      const added = list.filter(w => !known.has(`${w.hwnd}:${w.started}`) && !s.accounts.some(other => other.id !== id && other.window?.hwnd === w.hwnd));
+      if (added.length === 1) {
+        a.window = added[0]; a.status = 'running'; a.startedAt = Date.now(); a.lastSeen = Date.now();
+        log(`${a.username} connected to a Roblox window.`, 'info', id); return;
+      }
+      if (added.length > 1) throw new Error('Several new Roblox windows appeared. Attach the correct window manually before launching another account.');
+    }
+    const error = new Error('No new Roblox window appeared. Check your launcher and attach the correct window before retrying.');
+    error.pauseQueue = true; throw error;
   } catch (e) { a.status = e.status || 'error'; a.error = e.message; log(`${a.username}: ${e.message}`, 'warning', id); throw e; }
   finally { await persist(); emit(); }
 }
@@ -64,7 +82,7 @@ async function enqueue(ids) {
 }
 async function stopAccounts(ids) {
   queue.cancel(ids);
-  for (const id of ids) { const a = get(id); if (lease?.accountId === id) await releaseControl(); if (a.window) await native.call('close', { window: a.window }); a.status = 'idle'; delete a.window; delete a.startedAt; frames.delete(id); log(`Stopped ${a.username}.`, 'info', id); }
+  for (const id of ids) { const a = get(id); await localPlay.close(id); if (lease?.accountId === id) await releaseControl(); if (a.window) await native.call('close', { window: a.window }); a.status = 'idle'; delete a.window; delete a.startedAt; frames.delete(id); log(`Stopped ${a.username}.`, 'info', id); }
   await persist(); emit();
 }
 async function loginStart(raw) {
@@ -124,9 +142,13 @@ async function takeControl(id, owner = 'local') {
   const a = get(id); if (!a.window) throw new Error('Attach a Roblox window first.');
   if (owner !== 'local' && !store.state.settings.allowRemoteControl) throw new Error('Enable remote input on the host in Settings first.');
   if (lease && lease.until < Date.now()) await releaseControl();
+  if (localPlay.current || controlPending) throw new Error('Close local play or wait for the pending control request first.');
   if (lease) throw new Error('Another session already has control. Release it before taking control here.');
+  controlPending = true;
+  try {
   if (!(await native.call('focus', { window: a.window }))) throw new Error('Windows did not allow Roblox to take focus. Bring it forward on the host and try again.');
   lease = { owner, accountId: id, keys: new Set(), until: Date.now() + 10000, token: randomBytes(32).toString('hex') }; emit(); return { leaseToken: lease.token };
+  } finally { controlPending = false; }
 }
 async function releaseControl(owner) {
   if (!lease || (owner && lease.owner !== owner)) return;
@@ -189,12 +211,24 @@ async function action(name, arg = {}) {
     case 'groups.remove': { const group = text(arg.name, 80); if (store.state.accounts.some(a => a.group === group)) throw new Error('Move accounts out of this group first.'); store.state.groups = store.state.groups.filter(g => g !== group); await persist(); emit(); return true; }
     case 'queue.pause': queue.pause(); return true;
     case 'queue.resume': if (queue.nextAt > Date.now() && queue.reason.includes('rate limit')) throw new Error('Wait for the Roblox cooldown before resuming.'); queue.resume(); return true;
-    case 'settings.save': { const before = store.state.settings; store.state.settings = validateSettings(arg, before); await persist(); if (['hostEnabled', 'hostPort', 'hostBind', 'allowRemoteControl'].some(k => before[k] !== store.state.settings[k])) await configureHost(); emit(); return true; }
+    case 'settings.save': { const before = store.state.settings, next = validateSettings(arg, before); if (process.platform === 'win32' && before.multiSession !== next.multiSession) { if ((await windows()).length) throw new Error('Close all Roblox windows before changing multiple-session mode.'); await native.call(next.multiSession ? 'multi.enable' : 'multi.disable'); } store.state.settings = next; await persist(); if (['hostEnabled', 'hostPort', 'hostBind', 'allowRemoteControl'].some(k => before[k] !== store.state.settings[k])) await configureHost(); emit(); return true; }
     case 'profiles.save': { const p = validateProfile(arg); const i = store.state.profiles.findIndex(x => x.id === p.id); if (i < 0) store.state.profiles.push(p); else store.state.profiles[i] = p; await persist(); emit(); return p; }
     case 'launcher.pick': { const r = await dialog.showOpenDialog(win, { title: 'Choose Froststrap or Roblox launcher', filters: [{ name: 'Windows application', extensions: ['exe'] }], properties: ['openFile'] }); return r.canceled ? null : r.filePaths[0]; }
     case 'windows.list': return windows();
     case 'windows.attach': return attach(arg.id, arg.window);
     case 'frame': return arg.id.includes(':') ? remote(arg.id, 'frame') : capture(arg.id);
+    case 'play.open': {
+      const a = get(arg.id); if (!a.window) throw new Error('Attach a Roblox window first.');
+      if (lease || controlPending) throw new Error('Release remote control before opening local play.');
+      controlPending = true;
+      try {
+        const handle = win.getNativeWindowHandle();
+        const host = (handle.length === 8 ? handle.readBigUInt64LE() : BigInt(handle.readUInt32LE())).toString();
+        const result = await localPlay.open(a.id, a.window, host, arg.bounds); emit(); return result;
+      } finally { controlPending = false; }
+    }
+    case 'play.resize': return localPlay.resize(identifier(arg.id), arg.bounds);
+    case 'play.close': await localPlay.close(identifier(arg.id)); emit(); return true;
     case 'control.take': if (arg.id.includes(':')) return remote(arg.id, 'control'); { const a = get(arg.id); if (!a.window) throw new Error('Attach a Roblox window first.'); if (!await native.call('focus', { window: a.window })) throw new Error('Windows did not allow the game to take focus. Bring Roblox forward and try again.'); return true; }
     case 'control.release': if (arg.id?.includes(':')) return remote(arg.id, 'release'); await releaseControl('local'); return true;
     case 'control.input': return arg.id.includes(':') ? remote(arg.id, 'input', { event: arg.event }) : input(arg.id, arg.event);
@@ -222,7 +256,7 @@ async function poll() {
     const cpus = os.cpus(); let idle = 0, total = 0;
     cpus.forEach((c, i) => { const old = previousCpu[i]; if (!old) return; for (const k of Object.keys(c.times)) total += c.times[k] - old.times[k]; idle += c.times.idle - old.times.idle; }); previousCpu = cpus;
     localMetrics.cpu = total ? Math.round((1 - idle / total) * 100) : 0; localMetrics.ram = Math.round((1 - os.freemem() / os.totalmem()) * 100);
-    if (process.platform === 'win32' && store.state.accounts.some(a => a.window)) { const list = await windows(); for (const a of store.state.accounts) if (a.window) { if (!list.some(w => w.hwnd === a.window.hwnd && w.pid === a.window.pid && w.started === a.window.started)) { if (lease?.accountId === a.id) await releaseControl(); a.status = 'disconnected'; delete a.window; frames.delete(a.id); log(`${a.username} disconnected.`, 'warning', a.id); } else a.lastSeen = Date.now(); } }
+    if (process.platform === 'win32' && store.state.accounts.some(a => a.window)) { const list = await windows(); for (const a of store.state.accounts) if (a.window) { if (!list.some(w => w.hwnd === a.window.hwnd && w.pid === a.window.pid && w.started === a.window.started)) { if (lease?.accountId === a.id) await releaseControl(); await localPlay.close(a.id); a.status = 'disconnected'; delete a.window; frames.delete(a.id); log(`${a.username} disconnected.`, 'warning', a.id); } else a.lastSeen = Date.now(); } }
     if (lease && lease.until < Date.now()) await releaseControl();
     await Promise.allSettled(store.state.peers.map(async p => { try { const data = await peerRequest(p, store.secrets.peers[p.id], '/state'); peerStates.set(p.id, { ...data, online: true, lastSeen: Date.now() }); } catch (e) { peerStates.set(p.id, { ...peerStates.get(p.id), online: false, error: e.message }); } }));
     for (const s of store.state.schedules.filter(s => s.status === 'pending' && s.at <= Date.now())) { s.status = 'running'; await persist(); try { if (Date.now() - s.at > 5 * 60000) throw new Error('Missed while Orbit was closed.'); await (s.action === 'launch' ? enqueue(s.accountIds) : stopAccounts(s.accountIds)); s.status = 'done'; log(`Schedule completed: ${s.name}.`); } catch (e) { s.status = 'failed'; s.error = e.message; log(`Schedule ${s.name}: ${e.message}`, 'warning'); } await persist(); }
@@ -238,6 +272,7 @@ else {
       encrypt: async value => { if (!encryptionReady()) throw new Error('Secure OS encryption is unavailable.'); return safeStorage.encryptString(value); },
       decrypt: async value => { if (!encryptionReady()) throw new Error('Secure OS encryption is unavailable.'); return safeStorage.decryptString(value); }
     }).load();
+    if (process.platform === 'win32' && store.state.settings.multiSession) await native.call('multi.enable').catch(e => log(e.message, 'warning'));
     queue = new LaunchQueue({ launch, change: emit, settings: () => store.state.settings });
     win = new BrowserWindow({ width: 1560, height: 960, minWidth: 1050, minHeight: 700, frame: false, backgroundColor: '#17191b', title: 'Orbit', icon: join(here, 'renderer', 'assets', 'orbit.png'), webPreferences: { preload: join(here, 'preload.cjs'), sandbox: true, contextIsolation: true, nodeIntegration: false, webSecurity: true } });
     const expected = pathToFileURL(ui).href;
@@ -246,6 +281,7 @@ else {
     win.webContents.on('will-navigate', event => event.preventDefault());
     win.webContents.session.setPermissionRequestHandler((_w, _p, callback) => callback(false));
     await win.loadFile(ui);
+    win.on('close', event => { if (!localPlay.current) return; event.preventDefault(); localPlay.close().then(() => win?.close()).catch(e => dialog.showErrorBox('Close local play first', e.message)); });
     win.on('closed', () => { releaseControl().catch(() => {}); win = null; app.quit(); });
     if (store.state.settings.hostEnabled) await configureHost().catch(e => { hostError = e.message; });
     setInterval(() => poll().catch(() => {}), 3000).unref(); poll().catch(() => {});
@@ -255,5 +291,5 @@ else {
 app.on('before-quit', event => {
   if (quitting || !store) return; event.preventDefault(); quitting = true;
   queue?.stop(); for (const { login } of logins.values()) login.close();
-  releaseControl().finally(async () => { server?.closeAllConnections(); server?.close(); native.close(); await persist().catch(() => {}); app.quit(); });
+  localPlay.close().catch(() => {}).then(() => releaseControl()).finally(async () => { server?.closeAllConnections(); server?.close(); await native.close(); await persist().catch(() => {}); app.quit(); });
 });
