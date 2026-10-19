@@ -6,8 +6,8 @@ export function playBounds(value) {
   return { x, y, width, height, viewportWidth, viewportHeight };
 }
 export class LocalPlay {
-  constructor(native) { this.native = native; this.current = null; this.tail = Promise.resolve(); }
-  serial(run) { const result = this.tail.then(run); this.tail = result.catch(() => {}); return result; }
+  constructor(native) { this.native = native; this.current = null; this.pending = 0; this.tail = Promise.resolve(); }
+  serial(run) { this.pending++; const result = this.tail.then(run).finally(() => { this.pending--; }); this.tail = result.catch(() => {}); return result; }
   open(id, window, host, bounds) {
     const area = playBounds(bounds);
     return this.serial(async () => {

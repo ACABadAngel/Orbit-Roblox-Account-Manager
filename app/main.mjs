@@ -66,9 +66,11 @@ async function launchOne(id, cancelled) {
       const added = list.filter(w => !known.has(`${w.hwnd}:${w.started}`) && !s.accounts.some(other => other.id !== id && other.window?.hwnd === w.hwnd));
       if (added.length === 1) {
         a.window = added[0]; a.status = 'running'; a.startedAt = Date.now(); a.lastSeen = Date.now();
-        log(`${a.username} connected to a Roblox window.`, 'info', id); return;
+        log(`${a.username} connected to a Roblox window.`, 'info', id);
+        if (before.some(old => !list.some(w => w.hwnd === old.hwnd && w.started === old.started))) { const reason = 'An earlier Roblox window closed during launch. Queue paused: check whether your launcher replaced that session.'; queue.pause(reason); log(reason, 'warning', id); }
+        return;
       }
-      if (added.length > 1) throw new Error('Several new Roblox windows appeared. Attach the correct window manually before launching another account.');
+      if (added.length > 1) { const error = new Error('Several new Roblox windows appeared. Attach the correct window manually before launching another account.'); error.pauseQueue = true; throw error; }
     }
     const error = new Error('No new Roblox window appeared. Check your launcher and attach the correct window before retrying.');
     error.pauseQueue = true; throw error;
@@ -251,7 +253,7 @@ async function action(name, arg = {}) {
 }
 
 async function poll() {
-  if (pollsBusy || !store) return; pollsBusy = true;
+  if (pollsBusy || !store || quitting) return; pollsBusy = true;
   try {
     const cpus = os.cpus(); let idle = 0, total = 0;
     cpus.forEach((c, i) => { const old = previousCpu[i]; if (!old) return; for (const k of Object.keys(c.times)) total += c.times[k] - old.times[k]; idle += c.times.idle - old.times.idle; }); previousCpu = cpus;
@@ -281,7 +283,7 @@ else {
     win.webContents.on('will-navigate', event => event.preventDefault());
     win.webContents.session.setPermissionRequestHandler((_w, _p, callback) => callback(false));
     await win.loadFile(ui);
-    win.on('close', event => { if (!localPlay.current) return; event.preventDefault(); localPlay.close().then(() => win?.close()).catch(e => dialog.showErrorBox('Close local play first', e.message)); });
+    win.on('close', event => { if (!localPlay.current && !localPlay.pending) return; event.preventDefault(); localPlay.close().then(() => win?.close()).catch(e => dialog.showErrorBox('Close local play first', e.message)); });
     win.on('closed', () => { releaseControl().catch(() => {}); win = null; app.quit(); });
     if (store.state.settings.hostEnabled) await configureHost().catch(e => { hostError = e.message; });
     setInterval(() => poll().catch(() => {}), 3000).unref(); poll().catch(() => {});

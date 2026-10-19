@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { mkdir } from 'node:fs/promises';
 import { chromium } from 'playwright';
+import { sampleState } from '../app/renderer/demo.mjs';
 import { server } from './preview.mjs';
 
 await new Promise(r => server.listen(0, '127.0.0.1', r));
@@ -62,6 +63,34 @@ try {
   await page.getByRole('button', { name: 'Exit demo', exact: true }).click();
   await page.getByRole('heading', { name: 'A calmer space for all your accounts.' }).waitFor();
   assert.equal(await page.locator('tr.account-row').count(), 0);
+  // Exercise the real renderer branch with an isolated IPC stand-in. Native
+  // window operations themselves are covered by the Windows fixture smoke.
+  const nativeState = sampleState(); nativeState.platform = 'win32'; nativeState.accounts = [{ ...nativeState.accounts[0], windowAttached: true, status: 'running' }];
+  const nativePage = page;
+  await nativePage.setViewportSize({ width: 1672, height: 941 });
+  await nativePage.addInitScript(snapshot => {
+    window.playCalls = [];
+    window.orbit = { onChange: () => () => {}, call: async (name, arg) => {
+      if (name === 'state') return snapshot;
+      if (name === 'frame') throw new Error('Fixture has no screenshot');
+      if (name === 'play.open') { window.playCalls.push(name); await new Promise(r => { window.finishDock = r; }); snapshot.localPlayId = arg.id; return { mode: 'native' }; }
+      if (name === 'play.close') { window.playCalls.push(name); snapshot.localPlayId = null; return true; }
+      if (name === 'play.resize') return true;
+      throw new Error('Unexpected fixture action: ' + name);
+    } };
+  }, nativeState);
+  await nativePage.goto(url);
+  await nativePage.getByRole('button', { name: 'Live view', exact: true }).click();
+  await nativePage.locator('.previewcard [data-action="remote.open"]').first().click();
+  await nativePage.waitForFunction(() => typeof window.finishDock === 'function');
+  await nativePage.getByRole('button', { name: 'Play here', exact: true }).evaluate(el => { el.click(); el.click(); });
+  assert.equal(await nativePage.evaluate(() => window.playCalls.filter(n => n === 'play.open').length), 1);
+  await nativePage.evaluate(() => window.finishDock());
+  await nativePage.getByRole('button', { name: 'Return to preview', exact: true }).waitFor();
+  await nativePage.getByRole('button', { name: 'Return to preview', exact: true }).click();
+  await nativePage.getByRole('button', { name: 'Play here', exact: true }).waitFor();
+  await nativePage.getByRole('button', { name: 'Close session', exact: true }).click();
+  await nativePage.close();
   assert.deepEqual(errors, []);
   console.log('UI smoke checks passed: empty state, demo isolation, table/search/selection, groups, live view, remote dialog, machines, schedules, themes, and responsive layout.');
 } finally { await browser.close(); server.close(); }

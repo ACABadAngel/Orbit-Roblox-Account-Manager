@@ -44,7 +44,7 @@ async function call(name, arg = {}) {
 async function refresh(force = false) {
   if (refreshBusy || !bridge && !demo) return;
   refreshBusy = true;
-  try { if (!demo) state = await call('state'); if (state && (force || !modal.open && !['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement.tagName))) render(); }
+  try { if (!demo) state = await call('state'); if (theatre?.localPlaying && !theatre.busy && state.localPlayId !== theatre.id) { theatre.localPlaying = false; const button = modal.querySelector('#control-button'); if (button) { button.innerHTML = icon('mouse') + '<span>Play here</span>'; button.classList.remove('danger'); } toast('Local play ended.'); } if (state && (force || !modal.open && !['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement.tagName))) render(); }
   catch (err) { toast(err.message, true); } finally { refreshBusy = false; }
 }
 function filtered() { const q = query.toLowerCase(); return state.accounts.filter(a => (!group || a.group === group) && (!q || [a.username, a.displayName, a.notes, game(a)].some(v => v?.toLowerCase().includes(q))) && (!statusFilter || (statusFilter === 'attention' ? attentionStates.includes(a.status) : a.status === statusFilter)) && (!machineFilter || a.machineId === machineFilter)); }
@@ -148,8 +148,9 @@ async function openTheatre(id, control = false) {
   const resize = () => { if (theatre !== t || !t.localPlaying || t.resizeBusy) return; t.resizeBusy = true; call('play.resize', { id, bounds: localBounds() }).catch(err => toast(err.message, true)).finally(() => { t.resizeBusy = false; }); };
   const observer = new ResizeObserver(resize); if (surface) observer.observe(surface);
   window.addEventListener('resize', resize);
+  modal.addEventListener('scroll', resize, true);
   document.addEventListener('fullscreenchange', resize);
-  modalClose = async () => { observer.disconnect(); window.removeEventListener('resize', resize); document.removeEventListener('fullscreenchange', resize); if (theatre === t) theatre = null; if (!demo) await call(a.peerId ? 'control.release' : 'play.close', { id }).catch(() => {}); };
+  modalClose = async () => { observer.disconnect(); modal.removeEventListener('scroll', resize, true); window.removeEventListener('resize', resize); document.removeEventListener('fullscreenchange', resize); if (theatre === t) theatre = null; if (!demo) await call(a.peerId ? 'control.release' : 'play.close', { id }).catch(() => {}); };
   wireRemoteInput(); await updateFrames(); if (control && !demo) await toggleControl();
 }
 function localBounds() {

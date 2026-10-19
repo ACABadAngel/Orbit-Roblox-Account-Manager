@@ -102,14 +102,15 @@ function Assert-Window($value) {
 function Restore-Game {
   $saved = $script:docked
   if ($null -eq $saved) { return }
-  $script:docked = $null
-  try { $h = Assert-Window $saved.window } catch { return }
+  try { $h = Assert-Window $saved.window } catch { $script:docked = $null; return }
   [void][OrbitWindow]::SetParent($h, $saved.parent)
+  if ([OrbitWindow]::GetParent($h) -ne $saved.parent) { throw 'Could not restore the separate Roblox window. Keep Orbit open and retry Return to preview.' }
   [void][OrbitWindow]::SetWindowLong($h, -16, $saved.style)
   $r = $saved.rect
   [void][OrbitWindow]::SetWindowPos($h, [IntPtr]::Zero, $r.Left, $r.Top, $r.Right - $r.Left, $r.Bottom - $r.Top, 0x0034)
   $placement = $saved.placement
   [void][OrbitWindow]::SetWindowPlacement($h, [ref]$placement)
+  $script:docked = $null
 }
 function Resize-Game($bounds) {
   if ($null -eq $script:docked) { throw 'No local game is open.' }
