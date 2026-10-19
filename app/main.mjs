@@ -15,7 +15,7 @@ import { startHost, certificate, fingerprint, parsePeer, pinCertificate, peerReq
 const here = dirname(fileURLToPath(import.meta.url)), ui = join(here, 'renderer', 'index.html');
 if (!app.isPackaged && process.env.ORBIT_TEST_DATA) app.setPath('userData', process.env.ORBIT_TEST_DATA);
 let win, store, queue, server, hostError = '', quitting = false, pollsBusy = false;
-const native = new NativeHost(), logins = new Map(), peerStates = new Map(), frames = new Map();
+const native = new NativeHost(), logins = new Map(), peerStates = new Map(), frames = new Map(), remoteLeases = new Map();
 let localMetrics = { id: 'local', name: os.hostname(), online: true, cpu: 0, ram: 0, totalRam: os.totalmem(), platform: process.platform };
 let previousCpu = os.cpus(), lease = null;
 const get = id => { const a = store.state.accounts.find(a => a.id === identifier(id)); if (!a) throw new Error('Account not found.'); return a; };
@@ -123,15 +123,17 @@ async function capture(id) {
 async function takeControl(id, owner = 'local') {
   const a = get(id); if (!a.window) throw new Error('Attach a Roblox window first.');
   if (owner !== 'local' && !store.state.settings.allowRemoteControl) throw new Error('Enable remote input on the host in Settings first.');
-  if (lease && (lease.owner !== owner || lease.accountId !== id)) throw new Error('Another account or controller already has control.');
+  if (lease && lease.until < Date.now()) await releaseControl();
+  if (lease) throw new Error('Another session already has control. Release it before taking control here.');
   if (!(await native.call('focus', { window: a.window }))) throw new Error('Windows did not allow Roblox to take focus. Bring it forward on the host and try again.');
-  lease = { owner, accountId: id, keys: new Set(), until: Date.now() + 10000 }; emit(); return true;
+  lease = { owner, accountId: id, keys: new Set(), until: Date.now() + 10000, token: randomBytes(32).toString('hex') }; emit(); return { leaseToken: lease.token };
 }
 async function releaseControl(owner) {
   if (!lease || (owner && lease.owner !== owner)) return;
   const keys = [...lease.keys]; lease = null; await native.call('release', { keys }).catch(() => {}); emit();
 }
-async function input(id, event, owner = 'local') {
+async function input(id, event, owner = 'local', leaseToken) {
+  if (owner !== 'local' && (!leaseToken || lease?.token !== leaseToken)) throw new Error('This remote-control session is no longer active.');
   if (!lease || lease.owner !== owner || lease.accountId !== id || Date.now() > lease.until) { await releaseControl(owner); throw new Error('Take control before sending input.'); }
   if (!event || !['mousemove', 'mousedown', 'mouseup', 'keydown', 'keyup', 'wheel', 'heartbeat'].includes(event.type)) throw new Error('Unsupported input event.');
   lease.until = Date.now() + 10000;
@@ -152,16 +154,19 @@ async function configureHost() {
       if (body.action === 'launch') { await enqueue(body.ids); return { ok: true }; }
       if (body.action === 'stop') { if (!Array.isArray(body.ids) || body.ids.length > 5000) throw new Error('Invalid selection.'); await stopAccounts(body.ids); return { ok: true }; }
       if (body.action === 'frame') return capture(body.id);
-      if (body.action === 'control') { await takeControl(body.id, owner); return { ok: true }; }
-      if (body.action === 'release') { await releaseControl(owner); return { ok: true }; }
-      if (body.action === 'input') { await input(body.id, body.event, owner); return { ok: true }; }
+      if (body.action === 'control') return takeControl(body.id, owner);
+      if (body.action === 'release') { if (lease && (lease.owner !== owner || lease.token !== body.leaseToken)) throw new Error('This control lease belongs to another session.'); await releaseControl(owner); return { ok: true }; }
+      if (body.action === 'input') { await input(body.id, body.event, owner, body.leaseToken); return { ok: true }; }
       throw new Error('Unsupported host command.');
     } });
   } catch (e) { hostError = `Cannot start host: ${e.message}`; throw new Error(hostError); } finally { emit(); }
 }
 async function remote(id, action, body = {}) {
   const [peerId, accountId] = id.split(':'); const p = store.state.peers.find(p => p.id === peerId); if (!p) throw new Error('Paired machine not found.');
-  return peerRequest(p, store.secrets.peers[p.id], '/command', { ...body, action, id: accountId, ids: body.ids || [accountId] });
+  const result = await peerRequest(p, store.secrets.peers[p.id], '/command', { ...body, action, id: accountId, ids: body.ids || [accountId], ...(['input', 'release'].includes(action) ? { leaseToken: remoteLeases.get(id) } : {}) });
+  if (action === 'control') { if (!/^[a-f0-9]{64}$/.test(result.leaseToken)) throw new Error('Invalid control lease from host.'); remoteLeases.set(id, result.leaseToken); return { ok: true }; }
+  if (action === 'release') remoteLeases.delete(id);
+  return result;
 }
 async function action(name, arg = {}) {
   switch (name) {
@@ -227,7 +232,7 @@ async function poll() {
 if (!app.requestSingleInstanceLock()) app.quit();
 else {
   app.on('second-instance', () => { win?.restore(); win?.focus(); });
-  await app.whenReady();
+  app.whenReady().then(async () => {
   try {
     store = await new Store(join(app.getPath('userData'), 'orbit-data'), {
       encrypt: async value => { if (!encryptionReady()) throw new Error('Secure OS encryption is unavailable.'); return safeStorage.encryptString(value); },
@@ -245,6 +250,7 @@ else {
     if (store.state.settings.hostEnabled) await configureHost().catch(e => { hostError = e.message; });
     setInterval(() => poll().catch(() => {}), 3000).unref(); poll().catch(() => {});
   } catch (e) { dialog.showErrorBox('Orbit could not start', e.message); app.quit(); }
+  });
 }
 app.on('before-quit', event => {
   if (quitting || !store) return; event.preventDefault(); quitting = true;

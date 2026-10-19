@@ -272,6 +272,7 @@ document.addEventListener('keydown', ev => {
 modal.addEventListener('cancel', ev => { if (theatre?.controlling) { ev.preventDefault(); toggleControl().catch(() => {}); } });
 modal.addEventListener('close', () => { if (modal.open) return; const fn = modalClose; modalClose = null; fn?.(); if (document.fullscreenElement) document.exitFullscreen().catch(() => {}); });
 window.addEventListener('blur', () => { if (theatre?.controlling) toggleControl().catch(() => {}); });
+document.addEventListener('mouseup', ev => { if (theatre?.controlling && !ev.target.closest('#remote-surface') && [0,2].includes(ev.button)) sendInput({ type: 'mouseup', button: ev.button, x: 0, y: 0 }); });
 window.addEventListener('beforeunload', () => { if (theatre?.controlling) call('control.release', { id: theatre.id }).catch(() => {}); });
 function emptyState() { const s = sampleState(); return { ...s, accounts: [], machines: [], activity: [], secureStorage: false, platform: 'browser', queue: { pending: [], active: [], paused: false, nextAt: 0, reason: '' } }; }
 if (bridge) { state = await call('state'); bridge.onChange(() => refresh()); render(); }

@@ -23,6 +23,10 @@ try {
   await page.getByRole('textbox', { name: 'Search accounts' }).fill('');
   await page.getByLabel('Select visible accounts').check();
   assert.equal(await page.locator('[data-select]:checked').count(), 9);
+  await page.getByRole('button', { name: 'Organize selected accounts' }).click();
+  await page.locator('#modal select[name="group"]').selectOption('Trading');
+  await page.getByRole('button', { name: 'Apply to accounts', exact: true }).click();
+  await page.getByRole('button', { name: 'Trading 10', exact: true }).waitFor();
   await page.getByRole('button', { name: 'Clear selection' }).click();
   await page.getByRole('button', { name: 'Add group', exact: true }).click();
   await page.getByRole('textbox', { name: 'Group name' }).fill('My extra group');
