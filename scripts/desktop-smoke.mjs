@@ -25,6 +25,26 @@ try {
   const list = await page.evaluate(() => window.orbit.call('windows.list')); assert.ok(Array.isArray(list));
   await page.evaluate(() => window.orbit.call('groups.add', { name: 'Desktop QA' }));
   assert.ok((await page.evaluate(() => window.orbit.call('state'))).groups.includes('Desktop QA'));
+  await page.evaluate(() => window.orbit.call('groups.configure', { name: 'Desktop QA', config: { launchDelayMs: 0, autoRelaunch: true, relaunchDelayMs: 5000, serverMode: 'none', serverIds: [] } }));
+  assert.equal((await page.evaluate(() => window.orbit.call('state'))).groupSettings['Desktop QA'].launchDelayMs, 0);
+  const invite = 'private-access-code-example';
+  await page.evaluate(target => window.orbit.call('servers.save', { name: 'Private QA', placeId: '12345', target }), invite);
+  assert.equal(JSON.stringify(await page.evaluate(() => window.orbit.call('state'))).includes(invite), false);
+  await page.evaluate(() => window.orbit.call('groups.rename', { name: 'Desktop QA', next: 'Renamed QA' }));
+  assert.equal((await page.evaluate(() => window.orbit.call('state'))).groupSettings['Renamed QA'].launchDelayMs, 0);
+  const monitorEvent = instance.waitForEvent('window');
+  await page.evaluate(() => window.orbit.call('monitor.open', { mode: 'overlay' }));
+  const monitor = await monitorEvent; await monitor.getByText('Back to workspace', { exact: true }).waitFor();
+  assert.equal(await monitor.evaluate(() => typeof window.orbit), 'undefined');
+  const monitorState = await monitor.evaluate(() => window.orbitMonitor.call('state')); assert.ok(Array.isArray(monitorState.accounts)); assert.equal('settings' in monitorState, false);
+  await assert.rejects(monitor.evaluate(() => window.orbitMonitor.call('sessions.files')), /Unsupported monitor/);
+  await monitor.evaluate(() => window.orbitMonitor.call('monitor.corner', { corner: 'bottom-right' }));
+  await monitor.getByRole('button', { name: 'Back to workspace', exact: true }).click();
+  const popoutEvent = instance.waitForEvent('window');
+  await page.evaluate(() => window.orbit.call('monitor.open', { mode: 'popout' }));
+  const popout = await popoutEvent; await popout.getByRole('heading', { name: 'A calmer space for all your accounts.' }).waitFor();
+  assert.equal((await popout.evaluate(() => window.orbit.call('state'))).privateServers[0].name, 'Private QA');
+  await popout.evaluate(() => window.orbit.call('window.close'));
   await assert.rejects(page.evaluate(() => window.orbit.call('not-an-action')), /Unsupported/);
   await page.evaluate(() => window.orbit.call('settings.save', { hostEnabled: true, hostBind: '127.0.0.1' }));
   const details = await page.evaluate(() => window.orbit.call('host.pairing'));
@@ -43,5 +63,5 @@ try {
   await page.evaluate(() => window.orbit.call('license.refresh'));
   assert.equal((await page.evaluate(() => window.orbit.call('state'))).license.plan, 'free');
   assert.equal((await page.evaluate(() => window.orbit.call('state'))).machines.length, 2);
-  console.log('Desktop smoke passed: sandbox preload/IPC, Windows helper, local persistence, real HTTPS host, pinned pairing, and demo isolation.');
+  console.log('Desktop smoke passed: sandbox preload/IPC, Windows helper, local persistence, real HTTPS host, pinned pairing, account-manager configs, redacted invites, isolated overlay, popout IPC, and demo isolation.');
 } finally { await instance.close(); await rm(dir, { recursive: true, force: true }); await new Promise(r => { server.close(r); server.closeAllConnections(); }); ledger.close(); }

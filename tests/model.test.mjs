@@ -6,7 +6,8 @@ test('settings reject shell paths, extreme concurrency, and network addresses ou
   assert.throws(() => validateSettings({ maxConcurrent: 100 }));
   assert.throws(() => validateSettings({ multiSession: 'true' }));
   assert.equal(validateState({ ...initialState(), settings: { previewFps: 3 } }).settings.multiSession, true);
-  assert.throws(() => validateSettings({ launchDelayMs: 0 }));
+  assert.equal(validateSettings({ launchDelayMs: 0 }).launchDelayMs, 0);
+  assert.throws(() => validateSettings({ launchDelayMs: 120001 }));
   assert.throws(() => validateSettings({ hostBind: 'evil.example' }));
   assert.equal(validateSettings({ launcherPath: 'C:\\Users\\Paul\\Froststrap.exe' }).launcherPath, 'C:\\Users\\Paul\\Froststrap.exe');
 });

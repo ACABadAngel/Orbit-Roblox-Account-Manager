@@ -11,7 +11,7 @@ export class Store {
     catch (e) { if (e.code !== 'ENOENT') { try { this.state = validateState(JSON.parse(await readFile(join(this.directory, 'workspace.json.bak'), 'utf8'))); this.recovered = true; } catch { throw new Error('Orbit workspace is damaged. Restore workspace.json.bak before continuing.'); } } }
     try { this.secrets = JSON.parse(await this.crypto.decrypt(await readFile(join(this.directory, 'vault.bin')))); }
     catch (e) { if (e.code !== 'ENOENT') throw new Error('Cannot unlock the Orbit vault with this operating-system account.'); }
-    for (const a of this.state.accounts) { a.status = 'idle'; delete a.window; delete a.startedAt; delete a.hasFrame; }
+    for (const a of this.state.accounts) { a.status = 'idle'; delete a.window; delete a.startedAt; delete a.hasFrame; delete a.metrics; delete a.relaunchAt; delete a.recoveryAttempts; }
     return this;
   }
   save() {

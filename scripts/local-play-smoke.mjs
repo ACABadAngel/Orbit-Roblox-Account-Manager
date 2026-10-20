@@ -34,7 +34,8 @@ try {
   for (let i = 0; i < 30; i++) { list = await page.evaluate(() => window.orbit.call('windows.list')); if ([first.pid, second.pid].every(pid => list.some(w => w.pid === pid))) break; await delay(250); }
   firstWindow = list.find(w => w.pid === first.pid); const secondWindow = list.find(w => w.pid === second.pid);
   assert.ok(firstWindow); assert.ok(secondWindow);
-  console.log('Two independent fixture windows discovered.');
+  assert.ok(firstWindow.memoryBytes > 0); assert.ok(Number.isFinite(firstWindow.totalCpuMs));
+  console.log('Two independent fixture windows and process memory/CPU counters discovered.');
   original = await inspect(firstWindow.hwnd); assert.equal(original.parent, '0');
   for (const [id, window] of [['test-1', firstWindow], ['test-2', secondWindow]]) await page.evaluate(p => window.orbit.call('windows.attach', p), { id, window });
   await page.getByRole('button', { name: 'Live view', exact: true }).click();

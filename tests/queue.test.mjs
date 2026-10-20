@@ -20,3 +20,10 @@ test('cancel selected accounts invalidates their active requests without stoppin
   let cancelled, resolve; const q = new LaunchQueue({ launch: (_id, c) => { cancelled = c; return new Promise(r => resolve = r); } });
   q.enqueue(['one', 'two']); await tick(); q.cancel(['one']); assert.equal(cancelled(), true); assert.deepEqual(q.pending, ['two']); q.stop(); resolve(); await tick();
 });
+test('group delays pace the queue and a priority relaunch cannot bypass a verification pause', async () => {
+  let now = 1000, finish; const started = [];
+  const q = new LaunchQueue({ now: () => now, settings: () => ({ launchDelayMs: 5000, maxConcurrent: 1 }), delayFor: id => id === 'one' ? 10000 : 0, launch: id => { started.push(id); return new Promise(r => finish = r); } });
+  q.enqueue(['one', 'two', 'three']); await tick(); finish(); await tick(); assert.equal(q.nextAt,11000);
+  q.pause('Verification'); q.prioritize('three'); now = 12000; q.pump(); await tick(); assert.deepEqual(started,['one']); assert.deepEqual(q.pending,['three','two']);
+  q.resume(); await tick(); assert.deepEqual(started,['one','three']); q.stop(); finish(); await tick();
+});

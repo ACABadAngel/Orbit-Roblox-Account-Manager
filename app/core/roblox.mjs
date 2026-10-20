@@ -33,3 +33,33 @@ export async function authenticationTicket(cookie, placeId, request = fetch) {
 export async function avatarFor(userId) {
   try { const r = await fetch(`https://thumbnails.roblox.com/v1/users/avatar-headshot?userIds=${userId}&size=150x150&format=Png&isCircular=false`, { signal: AbortSignal.timeout(8000) }); const data = await r.json(); const url = new URL(data.data?.[0]?.imageUrl); return url.protocol === 'https:' && /(^|\.)rbxcdn\.com$/.test(url.hostname) ? url.href : ''; } catch { return ''; }
 }
+
+export async function gameDetails(placeId, request = fetch) {
+  if (!/^[1-9]\d{0,19}$/.test(placeId)) throw new Error('Enter a numeric place ID.');
+  const options = { redirect: 'error', signal: AbortSignal.timeout(15000) };
+  const r = await request(`https://apis.roblox.com/universes/v1/places/${placeId}/universe`, options); checkResponse(r);
+  if (!r.ok) throw new Error(`Could not look up this place (${r.status}).`);
+  const { universeId } = await r.json(); if (!Number.isSafeInteger(universeId) || universeId < 1) throw new Error('No experience found for this place.');
+  const games = await request(`https://games.roblox.com/v1/games?universeIds=${universeId}`, { ...options, signal: AbortSignal.timeout(15000) }); checkResponse(games);
+  if (!games.ok) throw new Error(`Could not load game information (${games.status}).`);
+  const data = (await games.json()).data?.[0]; if (!data?.name) throw new Error('This game is unavailable.');
+  return { placeId, universeId, name: String(data.name).slice(0, 120), creator: String(data.creator?.name || 'Unknown').slice(0, 100), playing: Math.max(0, Number(data.playing) || 0), checkedAt: Date.now() };
+}
+export async function resolvePrivateServer(secret, placeId, cookie, request = fetch) {
+  if (secret.kind === 'code') return { accessCode: secret.accessCode };
+  if (secret.resolved && Date.now() - secret.resolved.at < 3600000) return secret.resolved;
+  let url = new URL(secret.url), linkCode = secret.linkCode || '';
+  for (let redirects = 0; redirects < 5; redirects++) {
+    if (url.protocol !== 'https:' || !['www.roblox.com','roblox.com'].includes(url.hostname) || url.port || url.username || url.password || !/^\/(games\/|share(?:\?|$)|share$)/.test(url.pathname)) throw new Error('Private-server invite did not resolve to a Roblox game.');
+    const r = await request(url.href, { headers: { Cookie: `.ROBLOSECURITY=${cookie}` }, redirect: 'manual', signal: AbortSignal.timeout(15000) }); checkResponse(r);
+    if ([301,302,303,307,308].includes(r.status)) { const next = r.headers.get('location'); if (!next) break; url = new URL(next, url); continue; }
+    if (!r.ok) throw new Error(`Roblox could not resolve this invite (${r.status}).`);
+    const match = url.pathname.match(/^\/games\/(\d+)/); if (match && match[1] !== placeId) throw new Error('The private invite belongs to another place.');
+    linkCode = url.searchParams.get('privateServerLinkCode') || linkCode;
+    const html = await r.text(); if (html.length > 5_000_000) throw new Error('Private-server response was too large.');
+    const accessCode = html.match(/Roblox\.GameLauncher\.joinPrivateGame\(\d+,\s*['"]([a-zA-Z0-9_-]{8,256})['"]/)?.[1] || html.match(/data-private-server-access-code=['"]([a-zA-Z0-9_-]{8,256})['"]/)?.[1];
+    if (accessCode && /^[a-zA-Z0-9_-]{8,256}$/.test(linkCode)) { secret.resolved = { accessCode, linkCode, at: Date.now() }; return secret.resolved; }
+    break;
+  }
+  throw new Error('Roblox did not resolve this invite. Use its full /games/ private-server link or access code, and check account access.');
+}

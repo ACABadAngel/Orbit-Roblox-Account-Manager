@@ -10,7 +10,9 @@ const fixture = () => { let now = Date.now(); const ledger = new Ledger({ privat
 test('signed receipts reject forgery, copied installations, expiry, and an untrusted signing key', () => {
   const f = fixture(), grant = f.ledger.create({ plan: 'plus', days: 1 }), receipt = f.ledger.activate(grant.key, 'device-one').receipt;
   assert.equal(verifyReceipt(receipt, f.ledger.publicKey, 'device-one', f.now()).plan, 'plus');
-  assert.throws(() => verifyReceipt(receipt.replace(/.$/, c => c === 'A' ? 'B' : 'A'), f.ledger.publicKey, 'device-one', f.now()));
+  // Flip an actual signature bit: changing only unused base64 padding bits can decode to the same signature.
+  const parts = receipt.split('.'), signature = Buffer.from(parts[1], 'base64url'); signature[0] ^= 1; parts[1] = signature.toString('base64url');
+  assert.throws(() => verifyReceipt(parts.join('.'), f.ledger.publicKey, 'device-one', f.now()));
   assert.throws(() => verifyReceipt(receipt, f.ledger.publicKey, 'device-two', f.now()));
   assert.throws(() => verifyReceipt(receipt, pair().publicKey.export({ type: 'spki', format: 'pem' }), 'device-one', f.now()));
   f.advance(86400001); assert.throws(() => verifyReceipt(receipt, f.ledger.publicKey, 'device-one', f.now())); f.ledger.close();

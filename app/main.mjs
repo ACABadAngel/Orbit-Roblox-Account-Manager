@@ -5,13 +5,17 @@ import { UpdateManager } from './core/updater.mjs';
 import { requireFeature, requireRemote, requireBulk } from './core/plans.mjs';
 import { randomUUID, randomBytes, X509Certificate } from 'node:crypto';
 import os from 'node:os';
+import { screen } from 'electron';
+import { LAUNCH_DEFAULTS, launchConfig, effectiveConfig, privateServer, chooseServer, scheduleRecovery, processMetrics } from './core/account-manager.mjs';
+import { AccountOperations } from './core/account-operations.mjs';
+import { browserLogin } from './core/browser-login.mjs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { readFile, writeFile, stat } from 'node:fs/promises';
 import { spawn } from 'node:child_process';
 import { Store, encryptBackup, decryptBackup } from './core/storage.mjs';
 import { activity, publicAccount, text, identifier, validateSettings, validateProfile, validateSchedule, validateState, makeLaunchUri, nextScheduleAt, validateWorkflow } from './core/model.mjs';
-import { authenticationTicket, authenticatedUser, avatarFor } from './core/roblox.mjs';
+import { authenticationTicket, authenticatedUser, avatarFor, gameDetails, resolvePrivateServer } from './core/roblox.mjs';
 import { LaunchQueue } from './core/queue.mjs';
 import { setTimeout as delay } from 'node:timers/promises';
 import { LocalPlay } from './core/local-play.mjs';
@@ -20,14 +24,15 @@ import { startHost, certificate, fingerprint, parsePeer, pinCertificate, peerReq
 
 const here = dirname(fileURLToPath(import.meta.url)), ui = join(here, 'renderer', 'index.html');
 if (!app.isPackaged && process.env.ORBIT_TEST_DATA) app.setPath('userData', process.env.ORBIT_TEST_DATA);
-let win, store, queue, server, license, updates, hostError = '', quitting = false, pollsBusy = false;
+let win, store, queue, server, license, updates, operations, overlay, popout, hostError = '', quitting = false, pollsBusy = false;
+const serverCursors = new Map(), browserLogins = new Map();
 const native = new NativeHost(), logins = new Map(), peerStates = new Map(), frames = new Map(), remoteLeases = new Map();
 let localMetrics = { id: 'local', name: os.hostname(), online: true, cpu: 0, ram: 0, totalRam: os.totalmem(), platform: process.platform };
 const localPlay = new LocalPlay(native);
 let previousCpu = os.cpus(), lease = null, launchHandoff = Promise.resolve(), controlPending = false;
 const get = id => { const a = store.state.accounts.find(a => a.id === identifier(id)); if (!a) throw new Error('Account not found.'); return a; };
 const persist = () => store.save();
-const emit = () => { if (win && !win.isDestroyed()) win.webContents.send('orbit:changed'); };
+const emit = () => { for (const window of [win, overlay, popout]) if (window && !window.isDestroyed()) window.webContents.send('orbit:changed'); };
 function log(message, level = 'info', id = '') {
   activity(store.state, message, level, id); emit();
   if (level === 'warning' && store.state.settings.desktopAlerts && license?.status().features.alerts && Notification.isSupported()) new Notification({ title: 'Orbit · Session needs attention', body: message }).show();
@@ -36,7 +41,7 @@ function encryptionReady() { return safeStorage.isEncryptionAvailable() && (proc
 function snapshot(localOnly = false) {
   const s = store.state;
   const remote = localOnly ? [] : [...peerStates.entries()].flatMap(([peerId, state]) => (state.accounts || []).map(a => ({ ...a, id: `${peerId}:${a.id}`, remoteId: a.id, peerId, machineId: peerId, status: state.online ? a.status : 'unknown' })));
-  return { license: license?.status(), updates: updates?.snapshot(), workflows: s.workflows || [], localPlayId: localOnly ? null : localPlay.current, version: s.version, accounts: [...s.accounts.map(publicAccount), ...remote], groups: s.groups, profiles: s.profiles, settings: s.settings, machines: [{ ...localMetrics, accounts: s.accounts.length, running: s.accounts.filter(a => a.status === 'running').length }, ...(localOnly ? [] : s.peers.map(p => { const r = peerStates.get(p.id); return { id: p.id, name: p.name, address: p.address, online: Boolean(r?.online), cpu: r?.machine?.cpu || 0, ram: r?.machine?.ram || 0, totalRam: r?.machine?.totalRam || 0, accounts: r?.accounts?.length || 0, running: r?.accounts?.filter(a => a.status === 'running').length || 0, lastSeen: r?.lastSeen, error: r?.error || '' }; }))], queue: queue.snapshot, schedules: s.schedules, activity: license?.status().features.extendedHistory ? s.activity : s.activity.slice(0, 100), host: { enabled: Boolean(server), error: hostError, address: `https://${s.settings.hostBind === '0.0.0.0' ? (Object.values(os.networkInterfaces()).flat().find(i => i && i.family === 'IPv4' && !i.internal)?.address || os.hostname()) : '127.0.0.1'}:${s.settings.hostPort}` }, secureStorage: encryptionReady(), platform: process.platform };
+  return { operation: operations?.progress || null, groupSettings: s.groupSettings || {}, privateServers: (s.privateServers || []).map(({ id, name, placeId }) => ({ id, name, placeId })), license: license?.status(), updates: updates?.snapshot(), workflows: s.workflows || [], localPlayId: localOnly ? null : localPlay.current, version: s.version, accounts: [...s.accounts.map(publicAccount), ...remote], groups: s.groups, profiles: s.profiles, settings: s.settings, machines: [{ ...localMetrics, accounts: s.accounts.length, running: s.accounts.filter(a => a.status === 'running').length }, ...(localOnly ? [] : s.peers.map(p => { const r = peerStates.get(p.id); return { id: p.id, name: p.name, address: p.address, online: Boolean(r?.online), cpu: r?.machine?.cpu || 0, ram: r?.machine?.ram || 0, totalRam: r?.machine?.totalRam || 0, accounts: r?.accounts?.length || 0, running: r?.accounts?.filter(a => a.status === 'running').length || 0, lastSeen: r?.lastSeen, error: r?.error || '' }; }))], queue: queue.snapshot, schedules: s.schedules, activity: license?.status().features.extendedHistory ? s.activity : s.activity.slice(0, 100), host: { enabled: Boolean(server), error: hostError, address: `https://${s.settings.hostBind === '0.0.0.0' ? (Object.values(os.networkInterfaces()).flat().find(i => i && i.family === 'IPv4' && !i.internal)?.address || os.hostname()) : '127.0.0.1'}:${s.settings.hostPort}` }, secureStorage: encryptionReady(), platform: process.platform };
 }
 async function launch(id, cancelled) {
   // Attribute each newly created window before handing off the next launch.
@@ -49,13 +54,17 @@ async function launchOne(id, cancelled) {
   const a = get(id), s = store.state;
   try {
     if (process.platform !== 'win32') throw new Error('Launching Roblox requires Windows.');
-    const profile = s.profiles.find(p => p.id === a.profileId) || s.profiles[0]; if (!profile?.placeId) throw new Error('Set a place ID in Settings → Launch profiles.');
+    const config = effectiveConfig(s, a), profile = { ...(s.profiles.find(p => p.id === (config.profileId || a.profileId)) || s.profiles[0]) };
+    const server = chooseServer(config, a, s.privateServers || [], serverCursors);
+    if (server) { profile.placeId = server.placeId; profile.name = server.name; profile.jobId = ''; } if (!profile?.placeId) throw new Error('Set a place ID in Settings → Launch profiles.');
     const cookie = store.secrets.accounts?.[id]; if (!cookie) throw new Error('Sign in again to connect this account.');
     a.status = 'launching'; a.error = ''; emit();
     if (s.settings.multiSession) await native.call('multi.enable').catch(e => { e.pauseQueue = true; throw e; });
     const before = await native.call('list');
     if (!s.settings.multiSession && before.length) throw new Error('A Roblox session is already open. Enable multiple sessions in Settings before launching another account.');
+    if (server) { const secret = store.secrets.privateServers?.[server.id]; if (!secret) throw new Error('Re-enter this private server’s invite in Launch settings.'); Object.assign(profile, await resolvePrivateServer(secret, profile.placeId, cookie)); }
     const ticket = await authenticationTicket(cookie, profile.placeId);
+    a.lastLaunchedAt = Date.now();
     if (cancelled()) { a.status = 'idle'; return; }
     const uri = makeLaunchUri(ticket, profile);
     if (s.settings.launcherPath) {
@@ -84,14 +93,14 @@ async function launchOne(id, cancelled) {
   } catch (e) { a.status = e.status || 'error'; a.error = e.message; log(`${a.username}: ${e.message}`, 'warning', id); throw e; }
   finally { await persist(); emit(); }
 }
-async function enqueue(ids) {
+async function enqueue(ids, automatic = false) {
   if (!Array.isArray(ids) || !ids.length || ids.length > 5000) throw new Error('Select accounts first.');
-  const accounts = ids.map(get); for (const a of accounts) { if (['running', 'launching', 'queued', 'awaiting-window'].includes(a.status)) continue; if (a.status === 'verification' || a.status === 'expired') continue; a.status = 'queued'; a.error = ''; }
+  const accounts = [...new Set(ids)].map(get); for (const a of accounts) { if (!automatic) { a.relaunchAt = null; a.recoveryAttempts = []; } if (['running', 'launching', 'queued', 'awaiting-window'].includes(a.status)) continue; if (a.status === 'verification' || a.status === 'expired') continue; a.status = 'queued'; a.error = ''; }
   queue.enqueue(accounts.filter(a => a.status === 'queued').map(a => a.id)); await persist(); emit();
 }
 async function stopAccounts(ids) {
-  queue.cancel(ids);
-  for (const id of ids) { const a = get(id); await localPlay.close(id); if (lease?.accountId === id) await releaseControl(); if (a.window) await native.call('close', { window: a.window }); a.status = 'idle'; delete a.window; delete a.startedAt; frames.delete(id); log(`Stopped ${a.username}.`, 'info', id); }
+  queue.cancel(ids); for (const id of ids) { const a = get(id); a.relaunchAt = null; a.recoveryAttempts = []; }
+  for (const id of ids) { const a = get(id); await localPlay.close(id); if (lease?.accountId === id) await releaseControl(); if (a.window) await native.call('close', { window: a.window }); a.status = 'idle'; delete a.window; delete a.startedAt; frames.delete(id); delete a.metrics; log(`Stopped ${a.username}.`, 'info', id); }
   await persist(); emit();
 }
 async function loginStart(raw) {
@@ -120,7 +129,7 @@ async function loginFinish(id) {
   if (pending.existing?.status === 'verification' && profile?.placeId) await authenticationTicket(cookie, profile.placeId);
   let a = store.state.accounts.find(a => a.userId === user.id);
   if (!a) { a = { id: randomUUID(), userId: user.id, username: user.name, displayName: user.displayName || user.name, group: pending.group, profileId: profile.id, notes: '', addedAt: Date.now() }; store.state.accounts.push(a); }
-  a.status = 'idle'; a.error = ''; a.avatar = await avatarFor(user.id);
+  if (!a.window && !['queued','launching','awaiting-window'].includes(a.status)) { a.status = 'idle'; a.error = ''; } a.health = 'alive'; a.checkedAt = Date.now(); a.avatar = await avatarFor(user.id);
   store.secrets.accounts ||= {}; store.secrets.accounts[a.id] = cookie;
   if (!store.state.groups.includes(a.group)) store.state.groups.push(a.group);
   await persist(); pending.login.close(); log(`Connected ${a.username}.`, 'info', a.id); await persist(); return { id: a.id };
@@ -200,7 +209,7 @@ async function remote(id, action, body = {}) {
   if (action === 'release') remoteLeases.delete(id);
   return result;
 }
-async function action(name, arg = {}) {
+async function action(name, arg = {}, sourceWindow = win) {
   switch (name) {
     case 'state': return snapshot();
     case 'license.configure': await license.configure(arg); emit(); return license.status();
@@ -224,10 +233,56 @@ async function action(name, arg = {}) {
     case 'workflows.remove': store.state.workflows = (store.state.workflows || []).filter(w => w.id !== identifier(arg.id)); await persist(); emit(); return true;
     case 'workflows.run': { requireFeature(license.status(), 'workflows'); const workflow = (store.state.workflows || []).find(w => w.id === arg.id); if (!workflow) throw new Error('Workflow not found.'); await (workflow.action === 'launch' ? enqueue(workflow.accountIds) : stopAccounts(workflow.accountIds)); return true; }
     case 'activity.export': { requireFeature(license.status(), 'extendedHistory'); const r = await dialog.showSaveDialog(win, { defaultPath: 'orbit-activity.json', filters: [{ name: 'JSON history', extensions: ['json'] }] }); if (!r.canceled) await writeFile(r.filePath, JSON.stringify(store.state.activity, null, 2)); return !r.canceled; }
+    case 'browser.start': {
+      if (!encryptionReady()) throw new Error('Secure OS encryption is unavailable.');
+      for (const [id, pending] of browserLogins) if (pending.closed) browserLogins.delete(id);
+      if (browserLogins.size) throw new Error('Finish the open browser sign-in first.');
+      const group = text(arg.group || store.state.groups[0] || 'Main', 80), id = randomUUID();
+      if (!store.state.groups.includes(group)) throw new Error('Group not found.');
+      const pending = await browserLogin({ connected: async cookie => { const result = await operations.connect(cookie, group); log('Browser sign-in imported.'); await persist(); return result; }, changed: () => emit() });
+      browserLogins.set(id, pending); return { id };
+    }
+    case 'browser.status': { const pending = browserLogins.get(identifier(arg.id)); if (!pending || pending.closed) { browserLogins.delete(arg.id); return { closed: true, imported: Boolean(pending?.outcome), accountId: pending?.outcome?.id || null }; } return { closed: false, error: pending.error }; }
+    case 'browser.cancel': { const pending = browserLogins.get(identifier(arg.id)); await pending?.close(); browserLogins.delete(arg.id); return true; }
+    case 'sessions.files': {
+      const r = await dialog.showOpenDialog(win, { title: 'Load session files for review', properties: ['openFile', 'multiSelections'], filters: [{ name: 'Session text', extensions: ['txt','csv','log'] }] });
+      if (r.canceled) return null; if (r.filePaths.length > 20) throw new Error('Choose up to 20 files.');
+      const files = []; let total = 0; for (const path of r.filePaths) { const info = await stat(path); total += info.size; if (total > 5_000_000) throw new Error('Import up to 5 MB at a time.'); files.push(await readFile(path, 'utf8')); } return files.join('\n');
+    }
+    case 'sessions.import': { if (!encryptionReady()) throw new Error('Secure OS encryption is unavailable.'); const group = text(arg.group || store.state.groups[0], 80); if (!store.state.groups.includes(group)) throw new Error('Group not found.'); return operations.import(arg.sessions, group); }
+    case 'accounts.health': { if (!Array.isArray(arg.ids)) throw new Error('Select local accounts.'); return operations.health([...new Set(arg.ids.map(identifier))]); }
+    case 'operation.cancel': operations.cancel(); return true;
+    case 'accounts.relaunch': {
+      const a = get(arg.id), previous = a.window; await stopAccounts([a.id]);
+      for (let i = 0; i < 50; i++) { const stillOpen = previous && (await windows()).some(w => w.hwnd === previous.hwnd && w.started === previous.started); if (!stillOpen && !queue.snapshot.active.includes(a.id)) { await enqueue([a.id]); queue.prioritize(a.id); return true; } await delay(200); }
+      throw new Error('The previous session is still closing. Wait and launch this account again.');
+    }
+    case 'games.lookup': return gameDetails(text(arg.placeId, 24));
+    case 'groups.configure': {
+      const name = text(arg.name, 80); if (!store.state.groups.includes(name)) throw new Error('Group not found.');
+      const config = launchConfig(arg.config); if (config.profileId && !store.state.profiles.some(p => p.id === config.profileId)) throw new Error('Profile not found.');
+      if (config.serverIds.some(id => !store.state.privateServers.some(s => s.id === id))) throw new Error('Server not found.');
+      store.state.groupSettings ||= {}; Object.defineProperty(store.state.groupSettings, name, { value: config, enumerable: true, configurable: true, writable: true }); await persist(); emit(); return true;
+    }
+    case 'groups.rename': {
+      const name = text(arg.name, 80), next = text(arg.next, 80); if (!next || !store.state.groups.includes(name) || store.state.groups.includes(next)) throw new Error('Choose a unique group name.');
+      store.state.groups = store.state.groups.map(g => g === name ? next : g); for (const a of store.state.accounts) if (a.group === name) a.group = next;
+      if (Object.hasOwn(store.state.groupSettings, name)) { Object.defineProperty(store.state.groupSettings, next, { value: store.state.groupSettings[name], enumerable: true, configurable: true, writable: true }); delete store.state.groupSettings[name]; } await persist(); emit(); return true;
+    }
+    case 'servers.save': {
+      const { server, secret } = privateServer(arg); store.state.privateServers ||= []; const i = store.state.privateServers.findIndex(s => s.id === server.id);
+      if (i < 0) { if (store.state.privateServers.length >= 500) throw new Error('Keep up to 500 private servers.'); store.state.privateServers.push(server); } else store.state.privateServers[i] = server;
+      store.secrets.privateServers ||= {}; store.secrets.privateServers[server.id] = secret; await persist(); emit(); return server;
+    }
+    case 'servers.remove': {
+      const id = identifier(arg.id); store.state.privateServers = store.state.privateServers.filter(s => s.id !== id); delete store.secrets.privateServers?.[id];
+      for (const a of store.state.accounts) if (a.serverId === id) a.serverId = ''; for (const c of Object.values(store.state.groupSettings)) c.serverIds = (c.serverIds || []).filter(s => s !== id); await persist(); emit(); return true;
+    }
+    case 'monitor.open': await openMonitor(arg.mode); return true;
     case 'login.start': return loginStart(arg);
     case 'login.finish': return loginFinish(arg.id);
     case 'login.cancel': { logins.get(arg.id)?.login.close(); return true; }
-    case 'accounts.update': { const a = get(arg.id); if ('group' in arg) { if (!store.state.groups.includes(arg.group)) throw new Error('Group not found.'); a.group = arg.group; } if ('notes' in arg) a.notes = text(arg.notes, 2000); if ('profileId' in arg) { if (!store.state.profiles.some(p => p.id === arg.profileId)) throw new Error('Profile not found.'); a.profileId = arg.profileId; } await persist(); emit(); return true; }
+    case 'accounts.update': { const a = get(arg.id); if ('group' in arg) { if (!store.state.groups.includes(arg.group)) throw new Error('Group not found.'); a.group = arg.group; } if ('alias' in arg) a.alias = text(arg.alias, 80); if ('autoRelaunch' in arg) { if (typeof arg.autoRelaunch !== 'boolean') throw new Error('Invalid relaunch switch.'); a.autoRelaunch = arg.autoRelaunch; if (!arg.autoRelaunch) a.relaunchAt = null; } if ('serverId' in arg) { if (arg.serverId && !store.state.privateServers.some(s => s.id === arg.serverId)) throw new Error('Private server not found.'); a.serverId = arg.serverId; } if ('notes' in arg) a.notes = text(arg.notes, 2000); if ('profileId' in arg) { if (!store.state.profiles.some(p => p.id === arg.profileId)) throw new Error('Profile not found.'); a.profileId = arg.profileId; } await persist(); emit(); return true; }
     case 'accounts.organize': { if (!Array.isArray(arg.ids) || !arg.ids.length || arg.ids.length > 5000) throw new Error('Select local accounts first.'); const accounts = arg.ids.map(get); if (!store.state.groups.includes(arg.group)) throw new Error('Group not found.'); if (arg.profileId && !store.state.profiles.some(p => p.id === arg.profileId)) throw new Error('Profile not found.'); for (const a of accounts) { a.group = arg.group; if (arg.profileId) a.profileId = arg.profileId; } await persist(); emit(); return true; }
     case 'accounts.remove': { const a = get(arg.id); if (['running', 'launching', 'awaiting-window'].includes(a.status)) throw new Error('Stop this account before removing it.'); queue.cancel([a.id]); store.state.accounts = store.state.accounts.filter(x => x.id !== a.id); delete store.secrets.accounts[a.id]; await persist(); emit(); return true; }
     case 'accounts.launch': case 'accounts.stop': {
@@ -240,7 +295,7 @@ async function action(name, arg = {}) {
     }
     case 'accounts.stopAll': { queue.stop(); await stopAccounts(store.state.accounts.map(a => a.id)); for (const [peer, state] of peerStates) if (state.online && state.accounts.length) await remote(`${peer}:${state.accounts[0].id}`, 'stop', { ids: state.accounts.map(a => a.id) }); return true; }
     case 'groups.add': { const group = text(arg.name, 80); if (!group || store.state.groups.includes(group)) throw new Error('Choose a unique group name.'); store.state.groups.push(group); await persist(); emit(); return true; }
-    case 'groups.remove': { const group = text(arg.name, 80); if (store.state.accounts.some(a => a.group === group)) throw new Error('Move accounts out of this group first.'); store.state.groups = store.state.groups.filter(g => g !== group); await persist(); emit(); return true; }
+    case 'groups.remove': { const group = text(arg.name, 80); if (store.state.accounts.some(a => a.group === group)) throw new Error('Move accounts out of this group first.'); if (store.state.groups.length <= 1) throw new Error('Keep at least one group.'); store.state.groups = store.state.groups.filter(g => g !== group); delete store.state.groupSettings?.[group]; await persist(); emit(); return true; }
     case 'queue.pause': queue.pause(); return true;
     case 'queue.resume': if (queue.nextAt > Date.now() && queue.reason.includes('rate limit')) throw new Error('Wait for the Roblox cooldown before resuming.'); queue.resume(); return true;
     case 'settings.save': { const before = store.state.settings, next = validateSettings(arg, before); if (next.desktopAlerts && !before.desktopAlerts) requireFeature(license.status(), 'alerts'); if (next.updateChannel !== before.updateChannel) updates.setChannel(next.updateChannel); if (process.platform === 'win32' && before.multiSession !== next.multiSession) { if ((await windows()).length) throw new Error('Close all Roblox windows before changing multiple-session mode.'); await native.call(next.multiSession ? 'multi.enable' : 'multi.disable'); } store.state.settings = next; await persist(); if (['hostEnabled', 'hostPort', 'hostBind', 'allowRemoteControl'].some(k => before[k] !== store.state.settings[k])) await configureHost(); emit(); return true; }
@@ -254,7 +309,7 @@ async function action(name, arg = {}) {
       if (lease || controlPending) throw new Error('Release remote control before opening local play.');
       controlPending = true;
       try {
-        const handle = win.getNativeWindowHandle();
+        const handle = sourceWindow.getNativeWindowHandle();
         const host = (handle.length === 8 ? handle.readBigUInt64LE() : BigInt(handle.readUInt32LE())).toString();
         const result = await localPlay.open(a.id, a.window, host, arg.bounds); emit(); return result;
       } finally { controlPending = false; }
@@ -271,14 +326,42 @@ async function action(name, arg = {}) {
     case 'machines.remove': { identifier(arg.id); store.state.peers = store.state.peers.filter(p => p.id !== arg.id); delete store.secrets.peers?.[arg.id]; peerStates.delete(arg.id); await persist(); emit(); return true; }
     case 'schedules.add': { const schedule = validateSchedule(arg); if (schedule.recurrence !== 'once') requireFeature(license.status(), 'advancedSchedules'); schedule.accountIds.forEach(get); store.state.schedules.push(schedule); await persist(); emit(); return true; }
     case 'schedules.remove': { store.state.schedules = store.state.schedules.filter(s => s.id !== identifier(arg.id)); await persist(); emit(); return true; }
-    case 'backup.export': { const r = await dialog.showSaveDialog(win, { defaultPath: 'orbit-backup.orbit', filters: [{ name: 'Encrypted Orbit backup', extensions: ['orbit'] }] }); if (r.canceled) return false; const secrets = { accounts: store.secrets.accounts || {} }; const metadata = structuredClone(store.state); metadata.peers = []; metadata.settings.hostEnabled = false; await writeFile(r.filePath, encryptBackup({ state: metadata, secrets }, arg.passphrase), { mode: 0o600 }); log('Encrypted backup exported.'); return true; }
-    case 'backup.import': { const r = await dialog.showOpenDialog(win, { filters: [{ name: 'Encrypted Orbit backup', extensions: ['orbit'] }], properties: ['openFile'] }); if (r.canceled) return false; if ((await stat(r.filePaths[0])).size > 50_000_000) throw new Error('Backup too large.'); const data = decryptBackup(await readFile(r.filePaths[0], 'utf8'), arg.passphrase); validateState(data.state); if (!data.secrets?.accounts || typeof data.secrets.accounts !== 'object' || Object.values(data.secrets.accounts).some(v => typeof v !== 'string' || v.length > 20000 || /[\r\n;]/.test(v))) throw new Error('Invalid vault backup.'); for (const a of data.state.accounts) { if (store.state.accounts.some(x => x.userId === a.userId || x.id === a.id)) continue; a.status = 'idle'; delete a.window; delete a.startedAt; store.state.accounts.push(a); store.secrets.accounts ||= {}; store.secrets.accounts[a.id] = data.secrets.accounts[a.id]; } for (const g of data.state.groups) if (!store.state.groups.includes(g)) store.state.groups.push(g); for (const p of data.state.profiles) if (!store.state.profiles.some(x => x.id === p.id)) store.state.profiles.push(p); await persist(); log('Backup merged. Existing accounts were kept.'); return true; }
-    case 'window.minimize': win.minimize(); return true;
-    case 'window.maximize': win.isMaximized() ? win.unmaximize() : win.maximize(); return true;
-    case 'window.close': win.close(); return true;
+    case 'backup.export': { const r = await dialog.showSaveDialog(win, { defaultPath: 'orbit-backup.orbit', filters: [{ name: 'Encrypted Orbit backup', extensions: ['orbit'] }] }); if (r.canceled) return false; const secrets = { accounts: store.secrets.accounts || {}, privateServers: store.secrets.privateServers || {} }; const metadata = structuredClone(store.state); metadata.peers = []; metadata.settings.hostEnabled = false; await writeFile(r.filePath, encryptBackup({ state: metadata, secrets }, arg.passphrase), { mode: 0o600 }); log('Encrypted backup exported.'); return true; }
+    case 'backup.import': { const r = await dialog.showOpenDialog(win, { filters: [{ name: 'Encrypted Orbit backup', extensions: ['orbit'] }], properties: ['openFile'] }); if (r.canceled) return false; if ((await stat(r.filePaths[0])).size > 50_000_000) throw new Error('Backup too large.'); const data = decryptBackup(await readFile(r.filePaths[0], 'utf8'), arg.passphrase); validateState(data.state); if (!data.secrets?.accounts || typeof data.secrets.accounts !== 'object' || Object.values(data.secrets.accounts).some(v => typeof v !== 'string' || v.length > 20000 || /[\r\n;]/.test(v))) throw new Error('Invalid vault backup.'); for (const a of data.state.accounts) { if (store.state.accounts.some(x => x.userId === a.userId || x.id === a.id)) continue; a.status = 'idle'; delete a.window; delete a.startedAt; store.state.accounts.push(a); store.secrets.accounts ||= {}; store.secrets.accounts[a.id] = data.secrets.accounts[a.id]; } for (const g of data.state.groups) if (!store.state.groups.includes(g)) store.state.groups.push(g); for (const server of data.state.privateServers || []) if (!store.state.privateServers.some(s => s.id === server.id)) { const secret = data.secrets.privateServers?.[server.id]; if (secret) { privateServer({ ...server, target: secret.url || secret.accessCode }); store.state.privateServers.push(server); store.secrets.privateServers ||= {}; store.secrets.privateServers[server.id] = secret; } } for (const [group, config] of Object.entries(data.state.groupSettings || {})) if (!Object.hasOwn(store.state.groupSettings, group)) Object.defineProperty(store.state.groupSettings, group, { value: launchConfig(config), enumerable: true, configurable: true, writable: true }); for (const p of data.state.profiles) if (!store.state.profiles.some(x => x.id === p.id)) store.state.profiles.push(p); await persist(); log('Backup merged. Existing accounts were kept.'); return true; }
+    case 'window.minimize': sourceWindow.minimize(); return true;
+    case 'window.maximize': sourceWindow.isMaximized() ? sourceWindow.unmaximize() : sourceWindow.maximize(); return true;
+    case 'window.close': sourceWindow.close(); return true;
     case 'clipboard.copy': clipboard.writeText(text(arg.value, 4000)); return true;
     case 'link.open': { const links = { froststrap: 'https://github.com/Froststrap/Froststrap', reference: 'https://github.com/ic3w0lf22/Roblox-Account-Manager', help: 'https://github.com/ACABadAngel/Orbit-Roblox-Account-Manager' }; if (!links[arg.id]) throw new Error('Unknown link.'); await shell.openExternal(links[arg.id]); return true; }
     default: throw new Error('Unsupported Orbit action.');
+  }
+}
+
+function monitorSnapshot() {
+  return { accounts: store.state.accounts.map(a => ({ id: a.id, name: a.alias || a.displayName || a.username, username: a.username, status: a.status, health: a.health || 'unknown', relaunchAt: a.relaunchAt || null, metrics: publicAccount(a).metrics })), at: Date.now() };
+}
+function positionMonitor(window, corner) {
+  if (!['top-left','top-right','bottom-left','bottom-right'].includes(corner)) throw new Error('Choose a monitor corner.');
+  const display = screen.getDisplayMatching(win.getBounds()).workArea, size = window.getBounds();
+  window.setPosition(corner.endsWith('right') ? display.x + display.width - size.width - 16 : display.x + 16, corner.startsWith('bottom') ? display.y + display.height - size.height - 16 : display.y + 16);
+}
+async function openMonitor(mode) {
+  if (!['overlay','popout'].includes(mode)) throw new Error('Choose a monitor mode.');
+  await localPlay.close(); await releaseControl();
+  if (mode === 'overlay') {
+    if (overlay && !overlay.isDestroyed()) { overlay.show(); overlay.focus(); return; }
+    overlay = new BrowserWindow({ width: 390, height: 470, minWidth: 340, minHeight: 260, title: 'Orbit · Performance', alwaysOnTop: true, autoHideMenuBar: true, backgroundColor: '#0c0d10', webPreferences: { preload: join(here, 'monitor-preload.cjs'), sandbox: true, contextIsolation: true, nodeIntegration: false } });
+    overlay.webContents.setWindowOpenHandler(() => ({ action: 'deny' })); overlay.webContents.on('will-navigate', e => e.preventDefault());
+    overlay.on('closed', () => { overlay = null; if (!quitting) { if (popout && !popout.isDestroyed()) popout.show(); else win?.show(); } });
+    await overlay.loadFile(join(here, 'renderer', 'monitor.html')); positionMonitor(overlay, 'top-right'); win.hide(); popout?.hide();
+  } else {
+    overlay?.close();
+    if (popout && !popout.isDestroyed()) { popout.show(); popout.focus(); return; }
+    popout = new BrowserWindow({ width: 1340, height: 850, minWidth: 1050, minHeight: 700, frame: false, title: 'Orbit · Account manager', backgroundColor: '#0c0d10', webPreferences: { preload: join(here, 'preload.cjs'), sandbox: true, contextIsolation: true, nodeIntegration: false } });
+    popout.webContents.setWindowOpenHandler(() => ({ action: 'deny' })); popout.webContents.on('will-navigate', e => e.preventDefault());
+    popout.on('close', event => { if (localPlay.current || localPlay.pending) { event.preventDefault(); localPlay.close().then(() => popout?.close()).catch(() => {}); } });
+    popout.on('closed', () => { popout = null; if (!quitting) { win?.show(); win?.focus(); } });
+    await popout.loadFile(ui, { hash: 'popout' }); win.hide();
   }
 }
 
@@ -288,7 +371,8 @@ async function poll() {
     const cpus = os.cpus(); let idle = 0, total = 0;
     cpus.forEach((c, i) => { const old = previousCpu[i]; if (!old) return; for (const k of Object.keys(c.times)) total += c.times[k] - old.times[k]; idle += c.times.idle - old.times.idle; }); previousCpu = cpus;
     localMetrics.cpu = total ? Math.round((1 - idle / total) * 100) : 0; localMetrics.ram = Math.round((1 - os.freemem() / os.totalmem()) * 100);
-    if (process.platform === 'win32' && store.state.accounts.some(a => a.window)) { const list = await windows(); for (const a of store.state.accounts) if (a.window) { if (!list.some(w => w.hwnd === a.window.hwnd && w.pid === a.window.pid && w.started === a.window.started)) { if (lease?.accountId === a.id) await releaseControl(); await localPlay.close(a.id); a.status = 'disconnected'; delete a.window; frames.delete(a.id); log(`${a.username} disconnected.`, 'warning', a.id); } else a.lastSeen = Date.now(); } }
+    if (process.platform === 'win32' && store.state.accounts.some(a => a.window)) { const list = await windows(); for (const a of store.state.accounts) if (a.window) { if (!list.some(w => w.hwnd === a.window.hwnd && w.pid === a.window.pid && w.started === a.window.started)) { if (lease?.accountId === a.id) await releaseControl(); await localPlay.close(a.id); a.status = 'disconnected'; delete a.window; frames.delete(a.id); delete a.metrics; scheduleRecovery(a, effectiveConfig(store.state, a)); log(`${a.username} disconnected.${a.relaunchAt ? ' Automatic relaunch scheduled.' : ''}`, 'warning', a.id); await persist(); } else { a.lastSeen = Date.now(); const current = list.find(w => w.hwnd === a.window.hwnd && w.pid === a.window.pid && w.started === a.window.started); a.metrics = Number.isFinite(current.memoryBytes) && Number.isFinite(current.totalCpuMs) ? processMetrics(current, a.metrics, Date.now(), os.availableParallelism()) : null; const limit = effectiveConfig(store.state, a).memoryWarningMb; if (limit && a.metrics && a.metrics.memoryBytes > limit * 1048576 && !a.memoryWarned) { a.memoryWarned = true; log(`${a.username} exceeded its ${limit} MB memory warning.`, 'warning', a.id); } if (!limit || !a.metrics || a.metrics.memoryBytes < limit * 1048576 * .9) a.memoryWarned = false; }  } }
+    for (const a of store.state.accounts) if (a.relaunchAt && a.relaunchAt <= Date.now() && !queue.snapshot.paused) { if (!effectiveConfig(store.state, a).autoRelaunch || a.autoRelaunch === false) { a.relaunchAt = null; continue; } a.relaunchAt = null; a.recoveryAttempts ||= []; a.recoveryAttempts.push(Date.now()); await enqueue([a.id], true); }
     if (lease && lease.until < Date.now()) await releaseControl();
     await Promise.allSettled(store.state.peers.map(async p => { try { const data = await peerRequest(p, store.secrets.peers[p.id], '/state'); peerStates.set(p.id, { ...data, online: true, lastSeen: Date.now() }); } catch (e) { peerStates.set(p.id, { ...peerStates.get(p.id), online: false, error: e.message }); } }));
     for (const s of store.state.schedules.filter(s => s.status === 'pending' && s.at <= Date.now())) {
@@ -306,24 +390,27 @@ async function poll() {
 }
 if (!app.requestSingleInstanceLock()) app.quit();
 else {
-  app.on('second-instance', () => { win?.restore(); win?.focus(); });
+  app.on('second-instance', () => { win?.show(); win?.restore(); win?.focus(); });
   app.whenReady().then(async () => {
   try {
     store = await new Store(join(app.getPath('userData'), 'orbit-data'), {
       encrypt: async value => { if (!encryptionReady()) throw new Error('Secure OS encryption is unavailable.'); return safeStorage.encryptString(value); },
       decrypt: async value => { if (!encryptionReady()) throw new Error('Secure OS encryption is unavailable.'); return safeStorage.decryptString(value); }
     }).load();
+    for (const [name, config] of Object.entries(store.state.groupSettings)) Object.defineProperty(store.state.groupSettings, name, { value: launchConfig(config), enumerable: true, configurable: true, writable: true });
     const serviceConfig = JSON.parse(await readFile(join(here, 'config', 'services.json'), 'utf8'));
     license = new LicenseClient({ store, config: serviceConfig }); await persist();
     updates = new UpdateManager({ updater: electronUpdater.autoUpdater, available: app.isPackaged && process.platform === 'win32' && !process.env.PORTABLE_EXECUTABLE_FILE, version: app.getVersion(), settings: () => store.state.settings, changed: emit,
-      canInstall: async () => { if ((await windows()).length || queue?.snapshot.active.length || queue?.snapshot.pending.length || localPlay.current || lease || logins.size) throw new Error('Close Roblox sessions and sign-in windows, and clear the launch queue before restarting to update.'); },
+      canInstall: async () => { if ((await windows()).length || queue?.snapshot.active.length || queue?.snapshot.pending.length || localPlay.current || lease || logins.size || [...browserLogins.values()].some(p => !p.closed) || operations?.busy) throw new Error('Close Roblox sessions and sign-in windows, and clear the launch queue before restarting to update.'); },
       prepareInstall: async () => { await persist(); }
     });
     if (process.platform === 'win32' && store.state.settings.multiSession) await native.call('multi.enable').catch(e => log(e.message, 'warning'));
-    queue = new LaunchQueue({ launch, change: emit, settings: () => store.state.settings });
-    win = new BrowserWindow({ width: 1560, height: 960, minWidth: 1050, minHeight: 700, frame: false, backgroundColor: '#17191b', title: 'Orbit', icon: join(here, 'renderer', 'assets', 'orbit.png'), webPreferences: { preload: join(here, 'preload.cjs'), sandbox: true, contextIsolation: true, nodeIntegration: false, webSecurity: true } });
+    queue = new LaunchQueue({ launch, change: emit, settings: () => store.state.settings, delayFor: id => effectiveConfig(store.state, get(id)).launchDelayMs });
+    operations = new AccountOperations({ store, save: persist, changed: emit, log, pause: e => { queue.nextAt = Math.max(queue.nextAt, Date.now() + (e.retryAfterMs || 60000)); queue.pause(e.message); } });
+    win = new BrowserWindow({ width: 1560, height: 960, minWidth: 1050, minHeight: 700, frame: false, backgroundColor: '#0c0d10', title: 'Orbit', icon: join(here, 'renderer', 'assets', 'orbit.png'), webPreferences: { preload: join(here, 'preload.cjs'), sandbox: true, contextIsolation: true, nodeIntegration: false, webSecurity: true } });
     const expected = pathToFileURL(ui).href;
-    ipcMain.handle('orbit:action', async (event, name, arg) => { if (event.sender !== win.webContents || event.senderFrame !== win.webContents.mainFrame || event.senderFrame.url.split('#')[0] !== expected) throw new Error('Untrusted Orbit request.'); try { return { ok: true, value: await action(name, arg) }; } catch (e) { return { ok: false, error: e.message?.slice(0, 300) || 'The action could not be completed.' }; } });
+    ipcMain.handle('orbit:action', async (event, name, arg) => { if (![win, popout].some(w => w && !w.isDestroyed() && event.sender === w.webContents) || event.senderFrame !== event.sender.mainFrame || event.senderFrame.url.split('#')[0] !== expected) throw new Error('Untrusted Orbit request.'); try { return { ok: true, value: await action(name, arg, event.sender.getOwnerBrowserWindow()) }; } catch (e) { return { ok: false, error: e.message?.slice(0, 300) || 'The action could not be completed.' }; } });
+    ipcMain.handle('orbit:monitor', async (event, name, arg) => { if (![overlay, popout].some(w => w && !w.isDestroyed() && event.sender === w.webContents) || event.senderFrame !== event.sender.mainFrame || event.senderFrame.url.split('#')[0] !== pathToFileURL(join(here, 'renderer', 'monitor.html')).href) throw new Error('Untrusted monitor request.'); try { if (name === 'state') return { ok: true, value: monitorSnapshot() }; if (name === 'monitor.restore') { win.show(); win.focus(); overlay?.close(); popout?.close(); return { ok: true }; } if (name === 'monitor.corner') { positionMonitor(event.sender.getOwnerBrowserWindow(), arg.corner); return { ok: true }; } throw new Error('Unsupported monitor action.'); } catch (e) { return { ok: false, error: e.message }; } });
     win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
     win.webContents.on('will-navigate', event => event.preventDefault());
     win.webContents.session.setPermissionRequestHandler((_w, _p, callback) => callback(false));
@@ -340,7 +427,7 @@ else {
   });
 }
 app.on('before-quit', event => {
-  if (quitting || !store) return; event.preventDefault(); quitting = true;
+  if (quitting || !store) return; event.preventDefault(); quitting = true; operations?.cancel(); for (const p of browserLogins.values()) p.close().catch(() => {});
   queue?.stop(); for (const { login } of logins.values()) login.close();
   localPlay.close().catch(() => {}).then(() => releaseControl()).finally(async () => { server?.closeAllConnections(); server?.close(); await native.close(); await persist().catch(() => {}); app.quit(); });
 });

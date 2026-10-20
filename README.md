@@ -206,3 +206,7 @@ inspiration and [Roblox Account Manager](https://github.com/ic3w0lf22/Roblox-Acc
 for account organization and launch-flow references. Orbit is an original
 implementation and does not bundle either project's code. See
 [third-party notices](THIRD_PARTY_NOTICES.md).
+
+## Account manager 0.4
+
+A cleaner graphite workspace adds bulk session/file import, disposable Chrome/Edge sign-in, health checks, aliases, group launch settings, private-server pools/assignment, bounded automatic relaunch, process CPU/memory/PID, a command palette, popout management, and an always-on-top monitor. Existing local native play, paired PC control, licensing, and updates remain available. See [account-manager setup and limitations](docs/ACCOUNT_MANAGER.md).

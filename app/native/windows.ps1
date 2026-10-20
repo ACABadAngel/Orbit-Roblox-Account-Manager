@@ -71,7 +71,9 @@ function Read-RobloxWindow([IntPtr]$h) {
     if ($proc.ProcessName -ne 'RobloxPlayerBeta') { return $null }
     $title = [System.Text.StringBuilder]::new(512)
     [void][OrbitWindow]::GetWindowText($h, $title, 512)
-    return @{ hwnd = $h.ToInt64().ToString(); pid = [int]$ownerId; started = $proc.StartTime.ToUniversalTime().Ticks.ToString(); title = $title.ToString(); minimized = [OrbitWindow]::IsIconic($h) }
+    $memoryBytes = $null; $totalCpuMs = $null
+    try { $memoryBytes = [long]$proc.PrivateMemorySize64; $totalCpuMs = [double]$proc.TotalProcessorTime.TotalMilliseconds } catch {}
+    return @{ hwnd = $h.ToInt64().ToString(); pid = [int]$ownerId; started = $proc.StartTime.ToUniversalTime().Ticks.ToString(); title = $title.ToString(); minimized = [OrbitWindow]::IsIconic($h); memoryBytes = $memoryBytes; totalCpuMs = $totalCpuMs }
   } catch { return $null }
 }
 
