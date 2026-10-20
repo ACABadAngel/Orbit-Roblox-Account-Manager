@@ -42,20 +42,20 @@ try {
   await page.locator('.previewcard [data-action="remote.open"]').first().click();
   await page.getByRole('button', { name: 'Return to preview', exact: true }).waitFor();
   console.log('Local play opened.');
-  const docked = await inspect(firstWindow.hwnd); assert.notEqual(docked.parent, '0'); assert.ok(docked.width > 100);
+  const docked = await inspect(firstWindow.hwnd); assert.notEqual(docked.owner, '0'); assert.equal(docked.root, firstWindow.hwnd); assert.ok(docked.width > 100);
   assert.equal(await page.evaluate(() => window.orbit.call('play.focus', { id: 'test-1' })), true);
   await competitor.call('input', { window: firstWindow, event: { type: 'keydown', key: 87 } });
   await delay(150);
   assert.equal((await competitor.call('list')).find(w => w.pid === first.pid).title, 'Key W');
   await competitor.call('input', { window: firstWindow, event: { type: 'keyup', key: 87 } });
-  // A docked child stays discoverable, and the other session stays attached.
+  // Local play remains a top-level game, and the other session stays attached.
   assert.equal((await page.evaluate(() => window.orbit.call('windows.list'))).filter(w => [first.pid, second.pid].includes(w.pid)).length, 2);
   assert.equal((await page.evaluate(() => window.orbit.call('state'))).accounts.filter(a => a.windowAttached).length, 2);
   await page.setViewportSize({ width: 1100, height: 800 }); await delay(500);
   await page.getByRole('button', { name: 'Close session', exact: true }).click();
-  for (let i = 0; i < 20 && (await inspect(firstWindow.hwnd)).parent !== '0'; i++) await delay(100);
+  for (let i = 0; i < 20 && (await inspect(firstWindow.hwnd)).owner !== original.owner; i++) await delay(100);
   console.log('Session closed; checking native restoration.');
-  const restored = await inspect(firstWindow.hwnd); assert.equal(restored.parent, '0'); assert.equal(restored.style, original.style); assert.equal(restored.width, original.width);
+  const restored = await inspect(firstWindow.hwnd); assert.equal(restored.owner, original.owner); assert.equal(restored.parent, original.parent); assert.equal(restored.style, original.style); assert.equal(restored.width, original.width);
   const layoutState = await page.evaluate(() => window.orbit.call('layouts.state'));
   assert.ok(layoutState.displays.length); const displayId = layoutState.displays[0].id;
   const savedLayout = await page.evaluate(displayId => window.orbit.call('layouts.save', { layout: { name: 'Fixture grid', compact: true, gap: 8, slots: [{ accountId: 'test-1', displayId, x: 0, y: 0, width: .4, height: .5 }, { accountId: 'test-2', displayId, x: .4, y: 0, width: .4, height: .5 }] } }), displayId);
@@ -97,9 +97,9 @@ try {
   await page.locator('.previewcard [data-action="remote.open"]').first().click();
   await page.getByRole('button', { name: 'Return to preview', exact: true }).waitFor();
   await closeApp();
-  assert.equal((await inspect(firstWindow.hwnd)).parent, '0'); assert.equal(first.exitCode, null); assert.equal(second.exitCode, null);
+  assert.equal((await inspect(firstWindow.hwnd)).owner, original.owner); assert.equal(first.exitCode, null); assert.equal(second.exitCode, null);
   await competitor.call('multi.enable'); await competitor.call('multi.enable'); await competitor.call('multi.disable');
-  console.log('Native play smoke passed: exclusive mutex ownership, two independent windows, UI embedding/resizing, child discovery, restoration on close and app exit. Test fixtures only; real Roblox gameplay is a manual check.');
+  console.log('Native play smoke passed: exclusive mutex ownership, two independent windows, owned top-level local play/resizing, discovery, restoration on close and app exit. Test fixtures only; real Roblox gameplay is a manual check.');
 } catch (error) { console.error(error); throw error; } finally {
   await closeApp(); await competitor.close(); first?.kill(); second?.kill(); await delay(300); await rm(dir, { recursive: true, force: true }); clearTimeout(deadline);
 }
