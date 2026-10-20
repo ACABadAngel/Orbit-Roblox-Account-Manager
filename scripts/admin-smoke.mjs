@@ -1,0 +1,31 @@
+import assert from 'node:assert/strict';
+import { generateKeyPairSync } from 'node:crypto';
+import { createServer } from 'node:net';
+import { chromium } from 'playwright';
+import { Ledger } from '../licensing/ledger.mjs';
+import { licenseServer } from '../licensing/server.mjs';
+const timeout = setTimeout(() => { console.error('Admin browser check timed out.'); process.exit(1); }, 60000);
+const probe = createServer(); await new Promise(r => probe.listen(0, '127.0.0.1', r)); const port = probe.address().port; await new Promise(r => probe.close(r));
+const ledger = new Ledger({ privateKey: generateKeyPairSync('ed25519').privateKey });
+const adminToken = 'admin-browser-fixture-'.repeat(4), { server } = licenseServer({ ledger, adminToken, publicUrl: `http://127.0.0.1:${port}` });
+await new Promise(r => server.listen(port, '127.0.0.1', r));
+const browser = await chromium.launch({ ...(process.env.ORBIT_CHROMIUM ? { executablePath: process.env.ORBIT_CHROMIUM } : {}), headless: true, args: process.env.ORBIT_CHROMIUM_ARGS ? JSON.parse(process.env.ORBIT_CHROMIUM_ARGS) : [] });
+try {
+  const page = await browser.newPage({ viewport: { width: 1400, height: 1000 } }); const errors = []; page.on('pageerror', e => errors.push(e.message));
+  await page.goto(`http://127.0.0.1:${port}/admin`);
+  await page.getByLabel('Admin token', { exact: true }).fill(adminToken); await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+  console.log('Admin signed in.');
+  await page.locator('#create select[name=plan]').selectOption('plus'); await page.getByLabel('Label', { exact: true }).fill('Browser trial'); await page.locator('#create select[name=days]').selectOption('7');
+  await page.getByRole('button', { name: 'Create keys', exact: true }).click();
+  await page.getByRole('heading', { name: 'Copy these keys now', exact: true }).waitFor(); const key = await page.locator('#key-output').inputValue(); assert.match(key, /^ORBIT-/);
+  console.log('Created key.');
+  await page.getByRole('cell', { name: 'Browser trial', exact: true }).waitFor(); ledger.activate(key, 'fixture-installation', 'Browser PC');
+  await page.getByRole('button', { name: 'Refresh', exact: true }).click(); await page.getByRole('cell', { name: '1 / 1', exact: true }).waitFor();
+  await page.getByRole('button', { name: 'Installations', exact: true }).click(); await page.getByText(/Browser PC · Active/).waitFor();
+  await page.getByRole('button', { name: 'Deactivate', exact: true }).click();
+  await page.getByRole('cell', { name: '0 / 1', exact: true }).waitFor();
+  console.log('Installation deactivated.');
+  page.on('dialog', d => d.accept()); await page.getByRole('button', { name: 'Revoke', exact: true }).click(); await page.getByRole('cell', { name: 'Revoked', exact: true }).waitFor();
+  await page.getByRole('button', { name: 'Sign out', exact: true }).click(); assert.equal(await page.locator('#key-output').inputValue(), ''); assert.deepEqual(errors, []);
+  console.log('Admin browser checks passed: authenticated key creation, one-time key display, installation management, revocation, and secret removal on sign-out.');
+} finally { await browser.close(); await new Promise(r => { server.close(r); server.closeAllConnections(); }); ledger.close(); clearTimeout(timeout); }

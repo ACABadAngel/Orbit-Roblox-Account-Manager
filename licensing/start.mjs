@@ -1,0 +1,17 @@
+import { createPrivateKey } from 'node:crypto';
+import { readFile, mkdir } from 'node:fs/promises';
+import { join, resolve } from 'node:path';
+import { Ledger } from './ledger.mjs';
+import { licenseServer } from './server.mjs';
+const directory = resolve(process.env.ORBIT_SERVICE_DATA || '.orbit-service');
+await mkdir(directory, { recursive: true });
+const privateKey = createPrivateKey(await readFile(process.env.ORBIT_SIGNING_KEY_FILE || join(directory, 'signing.pem')));
+if (privateKey.asymmetricKeyType !== 'ed25519') throw new Error('Use an Ed25519 signing key.');
+const adminToken = process.env.ORBIT_ADMIN_TOKEN || (await readFile(process.env.ORBIT_ADMIN_TOKEN_FILE || join(directory, 'admin-token'), 'utf8')).trim();
+const trialDays = Number(process.env.ORBIT_TRIAL_DAYS || 0);
+if (!Number.isInteger(trialDays) || trialDays < 0 || trialDays > 30) throw new Error('Set trial days from 0 to 30.');
+const port = Number(process.env.PORT || 8787);
+const ledger = new Ledger({ database: join(directory, 'licenses.sqlite'), privateKey });
+const { server } = licenseServer({ ledger, adminToken, publicUrl: process.env.ORBIT_PUBLIC_URL || `http://127.0.0.1:${port}`, stripeSecret: process.env.STRIPE_SECRET_KEY, stripeWebhookSecret: process.env.STRIPE_WEBHOOK_SECRET, prices: JSON.parse(process.env.ORBIT_STRIPE_PRICES || '{}'), trialDays });
+server.listen(port, process.env.ORBIT_BIND || '127.0.0.1', () => console.log(`Orbit license service listening on port ${port}. Admin path: /admin`));
+for (const event of ['SIGINT', 'SIGTERM']) process.on(event, () => { server.close(() => { ledger.close(); process.exit(0); }); server.closeIdleConnections(); });

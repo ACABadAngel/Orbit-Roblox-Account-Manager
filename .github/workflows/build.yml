@@ -5,6 +5,9 @@ on:
     tags: ['v*']
   pull_request:
   workflow_dispatch:
+concurrency:
+  group: orbit-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 permissions:
   contents: read
 jobs:
@@ -21,6 +24,7 @@ jobs:
       - run: npm test
       - run: npx playwright install --with-deps chromium
       - run: npm run test:ui
+      - run: node scripts/admin-smoke.mjs
   windows:
     runs-on: windows-latest
     needs: test
@@ -44,11 +48,45 @@ jobs:
       - run: npm run test:desktop
       - run: node scripts/local-play-smoke.mjs
         timeout-minutes: 3
+      - name: Configure the public license service
+        env:
+          ORBIT_LICENSE_SERVICE_URL: ${{ vars.ORBIT_LICENSE_SERVICE_URL }}
+          ORBIT_LICENSE_PUBLIC_KEY: ${{ vars.ORBIT_LICENSE_PUBLIC_KEY }}
+        run: node scripts/configure-services.mjs
       - run: npm run dist -- --publish never
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
       - uses: actions/upload-artifact@v4
         with:
           name: Orbit-Windows
-          path: release/*.exe
+          path: |
+            release/*.exe
+            release/*.blockmap
+            release/latest*.yml
+            release/beta*.yml
           if-no-files-found: error
+
+  publish:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: windows
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: Orbit-Windows
+          path: release
+      - name: Publish the tested Windows release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          node -e 'const p = require("./package.json"); if (process.env.RELEASE_TAG !== "v" + p.version) process.exit(1);'
+          if [[ "$RELEASE_TAG" == *-* ]]; then
+            gh release create "$RELEASE_TAG" release/* --verify-tag --title "Orbit ${RELEASE_TAG#v}" --generate-notes --prerelease
+          else
+            gh release create "$RELEASE_TAG" release/* --verify-tag --title "Orbit ${RELEASE_TAG#v}" --generate-notes
+          fi

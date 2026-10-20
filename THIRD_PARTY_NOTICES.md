@@ -11,7 +11,8 @@ from either reference project.
   authentication-ticket/protocol flow and published Windows singleton name
   were inspected for interoperability. All helper code was written independently.
   The archived manager is not bundled or required.
-- Electron and electron-builder: MIT. selfsigned: MIT. Transitive dependency
+- Electron, electron-builder and electron-updater: MIT. selfsigned: MIT.
+  Stripe Node SDK: MIT (used only by the separate licensing service). Transitive dependency
   notices are included by the packaging tool as applicable.
 
 Roblox and game names belong to their respective owners. Orbit is independent

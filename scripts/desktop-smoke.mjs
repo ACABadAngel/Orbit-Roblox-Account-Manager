@@ -1,15 +1,26 @@
 import assert from 'node:assert/strict';
+import { generateKeyPairSync } from 'node:crypto';
+import { Ledger } from '../licensing/ledger.mjs';
+import { licenseServer } from '../licensing/server.mjs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { _electron } from 'playwright';
 import electronPath from 'electron';
 const dir = await mkdtemp(join(tmpdir(), 'orbit-desktop-'));
+const ledger = new Ledger({ privateKey: generateKeyPairSync('ed25519').privateKey });
+const grant = ledger.create({ plan: 'plus', days: 7 });
+const { server } = licenseServer({ ledger, adminToken: 'desktop-qa-'.repeat(8), publicUrl: 'http://127.0.0.1:8787' });
+await new Promise(r => server.listen(0, '127.0.0.1', r));
 const instance = await _electron.launch({ executablePath: electronPath, args: ['.', '--disable-gpu'], env: { ...process.env, ORBIT_TEST_DATA: dir }, timeout: 30000 });
 try {
   const page = await instance.firstWindow();
   await page.getByRole('heading', { name: 'A calmer space for all your accounts.' }).waitFor();
   const initial = await page.evaluate(() => window.orbit.call('state'));
+  assert.equal(initial.license.plan, 'free'); assert.equal(initial.updates.status, 'unavailable');
+  await assert.rejects(page.evaluate(() => window.orbit.call('machines.pair', {})), /Multi-PC control/);
+  await assert.rejects(page.evaluate(() => window.orbit.call('workflows.save', {})), /Saved workflows/);
+  await assert.rejects(page.evaluate(() => window.orbit.call('updates.check')), /installed Windows app/);
   assert.equal(initial.accounts.length, 0); assert.equal(initial.host.enabled, false);
   const list = await page.evaluate(() => window.orbit.call('windows.list')); assert.ok(Array.isArray(list));
   await page.evaluate(() => window.orbit.call('groups.add', { name: 'Desktop QA' }));
@@ -18,6 +29,9 @@ try {
   await page.evaluate(() => window.orbit.call('settings.save', { hostEnabled: true, hostBind: '127.0.0.1' }));
   const details = await page.evaluate(() => window.orbit.call('host.pairing'));
   assert.match(details.fingerprint, /^([A-F0-9]{2}:){31}[A-F0-9]{2}$/);
+  await page.evaluate(p => window.orbit.call('license.configure', p), { serverUrl: `http://127.0.0.1:${server.address().port}`, publicKey: ledger.publicKey });
+  await page.evaluate(key => window.orbit.call('license.activate', { key }), grant.key);
+  const activated = await page.evaluate(() => window.orbit.call('state')); assert.equal(activated.license.plan, 'plus'); assert.equal(JSON.stringify(activated).includes(grant.key), false);
   await page.evaluate(p => window.orbit.call('machines.pair', { ...p, name: 'Loopback QA' }), details);
   assert.equal((await page.evaluate(() => window.orbit.call('state'))).machines.length, 2);
   await page.evaluate(() => window.orbit.call('settings.save', { hostEnabled: false }));
@@ -25,5 +39,9 @@ try {
   assert.equal(await page.locator('tr.account-row').count(), 9);
   await page.getByRole('button', { name: 'Exit demo', exact: true }).click();
   assert.equal((await page.evaluate(() => window.orbit.call('state'))).accounts.length, 0);
+  ledger.update(grant.id, { revoked: true });
+  await page.evaluate(() => window.orbit.call('license.refresh'));
+  assert.equal((await page.evaluate(() => window.orbit.call('state'))).license.plan, 'free');
+  assert.equal((await page.evaluate(() => window.orbit.call('state'))).machines.length, 2);
   console.log('Desktop smoke passed: sandbox preload/IPC, Windows helper, local persistence, real HTTPS host, pinned pairing, and demo isolation.');
-} finally { await instance.close(); await rm(dir, { recursive: true, force: true }); }
+} finally { await instance.close(); await rm(dir, { recursive: true, force: true }); await new Promise(r => { server.close(r); server.closeAllConnections(); }); ledger.close(); }

@@ -1,4 +1,8 @@
-import { app, BrowserWindow, ipcMain, session, safeStorage, shell, dialog, desktopCapturer, clipboard } from 'electron';
+import { app, BrowserWindow, ipcMain, session, safeStorage, shell, dialog, desktopCapturer, clipboard, Notification } from 'electron';
+import electronUpdater from 'electron-updater';
+import { LicenseClient } from './core/license-client.mjs';
+import { UpdateManager } from './core/updater.mjs';
+import { requireFeature, requireRemote, requireBulk } from './core/plans.mjs';
 import { randomUUID, randomBytes, X509Certificate } from 'node:crypto';
 import os from 'node:os';
 import { join, dirname } from 'node:path';
@@ -6,7 +10,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { readFile, writeFile, stat } from 'node:fs/promises';
 import { spawn } from 'node:child_process';
 import { Store, encryptBackup, decryptBackup } from './core/storage.mjs';
-import { activity, publicAccount, text, identifier, validateSettings, validateProfile, validateSchedule, validateState, makeLaunchUri } from './core/model.mjs';
+import { activity, publicAccount, text, identifier, validateSettings, validateProfile, validateSchedule, validateState, makeLaunchUri, nextScheduleAt, validateWorkflow } from './core/model.mjs';
 import { authenticationTicket, authenticatedUser, avatarFor } from './core/roblox.mjs';
 import { LaunchQueue } from './core/queue.mjs';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -16,7 +20,7 @@ import { startHost, certificate, fingerprint, parsePeer, pinCertificate, peerReq
 
 const here = dirname(fileURLToPath(import.meta.url)), ui = join(here, 'renderer', 'index.html');
 if (!app.isPackaged && process.env.ORBIT_TEST_DATA) app.setPath('userData', process.env.ORBIT_TEST_DATA);
-let win, store, queue, server, hostError = '', quitting = false, pollsBusy = false;
+let win, store, queue, server, license, updates, hostError = '', quitting = false, pollsBusy = false;
 const native = new NativeHost(), logins = new Map(), peerStates = new Map(), frames = new Map(), remoteLeases = new Map();
 let localMetrics = { id: 'local', name: os.hostname(), online: true, cpu: 0, ram: 0, totalRam: os.totalmem(), platform: process.platform };
 const localPlay = new LocalPlay(native);
@@ -24,12 +28,15 @@ let previousCpu = os.cpus(), lease = null, launchHandoff = Promise.resolve(), co
 const get = id => { const a = store.state.accounts.find(a => a.id === identifier(id)); if (!a) throw new Error('Account not found.'); return a; };
 const persist = () => store.save();
 const emit = () => { if (win && !win.isDestroyed()) win.webContents.send('orbit:changed'); };
-function log(message, level = 'info', id = '') { activity(store.state, message, level, id); emit(); }
+function log(message, level = 'info', id = '') {
+  activity(store.state, message, level, id); emit();
+  if (level === 'warning' && store.state.settings.desktopAlerts && license?.status().features.alerts && Notification.isSupported()) new Notification({ title: 'Orbit · Session needs attention', body: message }).show();
+}
 function encryptionReady() { return safeStorage.isEncryptionAvailable() && (process.platform !== 'linux' || safeStorage.getSelectedStorageBackend() !== 'basic_text'); }
 function snapshot(localOnly = false) {
   const s = store.state;
   const remote = localOnly ? [] : [...peerStates.entries()].flatMap(([peerId, state]) => (state.accounts || []).map(a => ({ ...a, id: `${peerId}:${a.id}`, remoteId: a.id, peerId, machineId: peerId, status: state.online ? a.status : 'unknown' })));
-  return { localPlayId: localOnly ? null : localPlay.current, version: s.version, accounts: [...s.accounts.map(publicAccount), ...remote], groups: s.groups, profiles: s.profiles, settings: s.settings, machines: [{ ...localMetrics, accounts: s.accounts.length, running: s.accounts.filter(a => a.status === 'running').length }, ...(localOnly ? [] : s.peers.map(p => { const r = peerStates.get(p.id); return { id: p.id, name: p.name, address: p.address, online: Boolean(r?.online), cpu: r?.machine?.cpu || 0, ram: r?.machine?.ram || 0, totalRam: r?.machine?.totalRam || 0, accounts: r?.accounts?.length || 0, running: r?.accounts?.filter(a => a.status === 'running').length || 0, lastSeen: r?.lastSeen, error: r?.error || '' }; }))], queue: queue.snapshot, schedules: s.schedules, activity: s.activity, host: { enabled: Boolean(server), error: hostError, address: `https://${s.settings.hostBind === '0.0.0.0' ? (Object.values(os.networkInterfaces()).flat().find(i => i && i.family === 'IPv4' && !i.internal)?.address || os.hostname()) : '127.0.0.1'}:${s.settings.hostPort}` }, secureStorage: encryptionReady(), platform: process.platform };
+  return { license: license?.status(), updates: updates?.snapshot(), workflows: s.workflows || [], localPlayId: localOnly ? null : localPlay.current, version: s.version, accounts: [...s.accounts.map(publicAccount), ...remote], groups: s.groups, profiles: s.profiles, settings: s.settings, machines: [{ ...localMetrics, accounts: s.accounts.length, running: s.accounts.filter(a => a.status === 'running').length }, ...(localOnly ? [] : s.peers.map(p => { const r = peerStates.get(p.id); return { id: p.id, name: p.name, address: p.address, online: Boolean(r?.online), cpu: r?.machine?.cpu || 0, ram: r?.machine?.ram || 0, totalRam: r?.machine?.totalRam || 0, accounts: r?.accounts?.length || 0, running: r?.accounts?.filter(a => a.status === 'running').length || 0, lastSeen: r?.lastSeen, error: r?.error || '' }; }))], queue: queue.snapshot, schedules: s.schedules, activity: license?.status().features.extendedHistory ? s.activity : s.activity.slice(0, 100), host: { enabled: Boolean(server), error: hostError, address: `https://${s.settings.hostBind === '0.0.0.0' ? (Object.values(os.networkInterfaces()).flat().find(i => i && i.family === 'IPv4' && !i.internal)?.address || os.hostname()) : '127.0.0.1'}:${s.settings.hostPort}` }, secureStorage: encryptionReady(), platform: process.platform };
 }
 async function launch(id, cancelled) {
   // Attribute each newly created window before handing off the next launch.
@@ -186,7 +193,8 @@ async function configureHost() {
   } catch (e) { hostError = `Cannot start host: ${e.message}`; throw new Error(hostError); } finally { emit(); }
 }
 async function remote(id, action, body = {}) {
-  const [peerId, accountId] = id.split(':'); const p = store.state.peers.find(p => p.id === peerId); if (!p) throw new Error('Paired machine not found.');
+  const [peerId, accountId] = id.split(':');
+  if (!['stop', 'release'].includes(action)) requireRemote(license.status(), store.state.peers.findIndex(p => p.id === peerId)); const p = store.state.peers.find(p => p.id === peerId); if (!p) throw new Error('Paired machine not found.');
   const result = await peerRequest(p, store.secrets.peers[p.id], '/command', { ...body, action, id: accountId, ids: body.ids || [accountId], ...(['input', 'release'].includes(action) ? { leaseToken: remoteLeases.get(id) } : {}) });
   if (action === 'control') { if (!/^[a-f0-9]{64}$/.test(result.leaseToken)) throw new Error('Invalid control lease from host.'); remoteLeases.set(id, result.leaseToken); return { ok: true }; }
   if (action === 'release') remoteLeases.delete(id);
@@ -195,6 +203,27 @@ async function remote(id, action, body = {}) {
 async function action(name, arg = {}) {
   switch (name) {
     case 'state': return snapshot();
+    case 'license.configure': await license.configure(arg); emit(); return license.status();
+    case 'license.activate': await license.activate(text(arg.key, 100)); emit(); return license.status();
+    case 'license.refresh': await license.loadCatalog(); await license.refresh(); emit(); return license.status();
+    case 'license.trial': await license.trial(); emit(); return license.status();
+    case 'license.devices': return license.devices();
+    case 'license.deactivate': await license.deactivate(identifier(arg.deviceId)); emit(); return true;
+    case 'license.forget': await license.forget(); emit(); return true;
+    case 'license.checkout': { const url = await license.checkout(text(arg.offer, 40)); await shell.openExternal(url); emit(); return true; }
+    case 'license.purchase.cancel': { const result = await license.cancelPurchase(); emit(); return result; }
+    case 'license.purchase': { const result = await license.collectPurchase(); emit(); return result; }
+    case 'license.billing': await shell.openExternal(await license.billingPortal()); return true;
+    case 'updates.check': return updates.check();
+    case 'updates.install': await updates.install(); return true;
+    case 'updates.configure': {
+      const next = validateSettings(arg, store.state.settings); if (next.updateChannel !== store.state.settings.updateChannel) updates.setChannel(next.updateChannel);
+      store.state.settings.autoUpdate = next.autoUpdate; store.state.settings.updateChannel = next.updateChannel; await persist(); emit(); return true;
+    }
+    case 'workflows.save': { requireFeature(license.status(), 'workflows'); const workflow = validateWorkflow(arg, store.state.accounts); store.state.workflows ||= []; const index = store.state.workflows.findIndex(w => w.id === workflow.id); if (index < 0) { if (store.state.workflows.length >= 100) throw new Error('Keep up to 100 saved workflows.'); store.state.workflows.push(workflow); } else store.state.workflows[index] = workflow; await persist(); emit(); return true; }
+    case 'workflows.remove': store.state.workflows = (store.state.workflows || []).filter(w => w.id !== identifier(arg.id)); await persist(); emit(); return true;
+    case 'workflows.run': { requireFeature(license.status(), 'workflows'); const workflow = (store.state.workflows || []).find(w => w.id === arg.id); if (!workflow) throw new Error('Workflow not found.'); await (workflow.action === 'launch' ? enqueue(workflow.accountIds) : stopAccounts(workflow.accountIds)); return true; }
+    case 'activity.export': { requireFeature(license.status(), 'extendedHistory'); const r = await dialog.showSaveDialog(win, { defaultPath: 'orbit-activity.json', filters: [{ name: 'JSON history', extensions: ['json'] }] }); if (!r.canceled) await writeFile(r.filePath, JSON.stringify(store.state.activity, null, 2)); return !r.canceled; }
     case 'login.start': return loginStart(arg);
     case 'login.finish': return loginFinish(arg.id);
     case 'login.cancel': { logins.get(arg.id)?.login.close(); return true; }
@@ -205,6 +234,7 @@ async function action(name, arg = {}) {
       if (!Array.isArray(arg.ids) || !arg.ids.length || arg.ids.length > 5000) throw new Error('Select accounts first.');
       const local = arg.ids.filter(id => !id.includes(':')), peers = new Map();
       for (const id of arg.ids.filter(id => id.includes(':'))) { const [peer, account] = id.split(':'); identifier(peer); identifier(account); const ids = peers.get(peer) || []; ids.push(account); peers.set(peer, ids); }
+      if (name === 'accounts.launch') { requireBulk(license.status(), arg.ids); for (const [peer] of peers) requireRemote(license.status(), store.state.peers.findIndex(p => p.id === peer)); }
       if (local.length) await (name === 'accounts.launch' ? enqueue(local) : stopAccounts(local));
       for (const [peer, ids] of peers) await remote(`${peer}:${ids[0]}`, name === 'accounts.launch' ? 'launch' : 'stop', { ids }); return true;
     }
@@ -213,7 +243,7 @@ async function action(name, arg = {}) {
     case 'groups.remove': { const group = text(arg.name, 80); if (store.state.accounts.some(a => a.group === group)) throw new Error('Move accounts out of this group first.'); store.state.groups = store.state.groups.filter(g => g !== group); await persist(); emit(); return true; }
     case 'queue.pause': queue.pause(); return true;
     case 'queue.resume': if (queue.nextAt > Date.now() && queue.reason.includes('rate limit')) throw new Error('Wait for the Roblox cooldown before resuming.'); queue.resume(); return true;
-    case 'settings.save': { const before = store.state.settings, next = validateSettings(arg, before); if (process.platform === 'win32' && before.multiSession !== next.multiSession) { if ((await windows()).length) throw new Error('Close all Roblox windows before changing multiple-session mode.'); await native.call(next.multiSession ? 'multi.enable' : 'multi.disable'); } store.state.settings = next; await persist(); if (['hostEnabled', 'hostPort', 'hostBind', 'allowRemoteControl'].some(k => before[k] !== store.state.settings[k])) await configureHost(); emit(); return true; }
+    case 'settings.save': { const before = store.state.settings, next = validateSettings(arg, before); if (next.desktopAlerts && !before.desktopAlerts) requireFeature(license.status(), 'alerts'); if (next.updateChannel !== before.updateChannel) updates.setChannel(next.updateChannel); if (process.platform === 'win32' && before.multiSession !== next.multiSession) { if ((await windows()).length) throw new Error('Close all Roblox windows before changing multiple-session mode.'); await native.call(next.multiSession ? 'multi.enable' : 'multi.disable'); } store.state.settings = next; await persist(); if (['hostEnabled', 'hostPort', 'hostBind', 'allowRemoteControl'].some(k => before[k] !== store.state.settings[k])) await configureHost(); emit(); return true; }
     case 'profiles.save': { const p = validateProfile(arg); const i = store.state.profiles.findIndex(x => x.id === p.id); if (i < 0) store.state.profiles.push(p); else store.state.profiles[i] = p; await persist(); emit(); return p; }
     case 'launcher.pick': { const r = await dialog.showOpenDialog(win, { title: 'Choose Froststrap or Roblox launcher', filters: [{ name: 'Windows application', extensions: ['exe'] }], properties: ['openFile'] }); return r.canceled ? null : r.filePaths[0]; }
     case 'windows.list': return windows();
@@ -237,9 +267,9 @@ async function action(name, arg = {}) {
     case 'screenshot': { const frame = arg.id.includes(':') ? await remote(arg.id, 'frame') : await capture(arg.id); const r = await dialog.showSaveDialog(win, { defaultPath: 'orbit-screenshot.png', filters: [{ name: 'PNG image', extensions: ['png'] }] }); if (!r.canceled) await writeFile(r.filePath, Buffer.from(frame.data.split(',')[1], 'base64')); return !r.canceled; }
     case 'host.pairing': { if (!server || !store.secrets.host) throw new Error('Enable machine hosting first.'); const h = store.secrets.host; return { address: snapshot().host.address, fingerprint: fingerprint(new X509Certificate(h.cert).raw), token: h.token }; }
     case 'host.rotate': { await releaseControl(); store.secrets.host.token = randomBytes(32).toString('hex'); await persist(); await configureHost(); return true; }
-    case 'machines.pair': { const name = text(arg.name, 80), address = parsePeer(arg.address).origin, cert = await pinCertificate(address, arg.fingerprint), token = text(arg.token, 200); if (!/^[a-f0-9]{64}$/.test(token)) throw new Error('Invalid pairing token.'); const p = { id: randomUUID(), name, address, certificate: cert, fingerprint: fingerprint(new X509Certificate(cert).raw) }; const s = await peerRequest(p, token, '/state'); store.state.peers.push(p); store.secrets.peers ||= {}; store.secrets.peers[p.id] = token; peerStates.set(p.id, { ...s, online: true, lastSeen: Date.now() }); await persist(); emit(); return true; }
+    case 'machines.pair': { requireRemote(license.status(), store.state.peers.length); const name = text(arg.name, 80), address = parsePeer(arg.address).origin, cert = await pinCertificate(address, arg.fingerprint), token = text(arg.token, 200); if (!/^[a-f0-9]{64}$/.test(token)) throw new Error('Invalid pairing token.'); const p = { id: randomUUID(), name, address, certificate: cert, fingerprint: fingerprint(new X509Certificate(cert).raw) }; const s = await peerRequest(p, token, '/state'); store.state.peers.push(p); store.secrets.peers ||= {}; store.secrets.peers[p.id] = token; peerStates.set(p.id, { ...s, online: true, lastSeen: Date.now() }); await persist(); emit(); return true; }
     case 'machines.remove': { identifier(arg.id); store.state.peers = store.state.peers.filter(p => p.id !== arg.id); delete store.secrets.peers?.[arg.id]; peerStates.delete(arg.id); await persist(); emit(); return true; }
-    case 'schedules.add': { const schedule = validateSchedule(arg); schedule.accountIds.forEach(get); store.state.schedules.push(schedule); await persist(); emit(); return true; }
+    case 'schedules.add': { const schedule = validateSchedule(arg); if (schedule.recurrence !== 'once') requireFeature(license.status(), 'advancedSchedules'); schedule.accountIds.forEach(get); store.state.schedules.push(schedule); await persist(); emit(); return true; }
     case 'schedules.remove': { store.state.schedules = store.state.schedules.filter(s => s.id !== identifier(arg.id)); await persist(); emit(); return true; }
     case 'backup.export': { const r = await dialog.showSaveDialog(win, { defaultPath: 'orbit-backup.orbit', filters: [{ name: 'Encrypted Orbit backup', extensions: ['orbit'] }] }); if (r.canceled) return false; const secrets = { accounts: store.secrets.accounts || {} }; const metadata = structuredClone(store.state); metadata.peers = []; metadata.settings.hostEnabled = false; await writeFile(r.filePath, encryptBackup({ state: metadata, secrets }, arg.passphrase), { mode: 0o600 }); log('Encrypted backup exported.'); return true; }
     case 'backup.import': { const r = await dialog.showOpenDialog(win, { filters: [{ name: 'Encrypted Orbit backup', extensions: ['orbit'] }], properties: ['openFile'] }); if (r.canceled) return false; if ((await stat(r.filePaths[0])).size > 50_000_000) throw new Error('Backup too large.'); const data = decryptBackup(await readFile(r.filePaths[0], 'utf8'), arg.passphrase); validateState(data.state); if (!data.secrets?.accounts || typeof data.secrets.accounts !== 'object' || Object.values(data.secrets.accounts).some(v => typeof v !== 'string' || v.length > 20000 || /[\r\n;]/.test(v))) throw new Error('Invalid vault backup.'); for (const a of data.state.accounts) { if (store.state.accounts.some(x => x.userId === a.userId || x.id === a.id)) continue; a.status = 'idle'; delete a.window; delete a.startedAt; store.state.accounts.push(a); store.secrets.accounts ||= {}; store.secrets.accounts[a.id] = data.secrets.accounts[a.id]; } for (const g of data.state.groups) if (!store.state.groups.includes(g)) store.state.groups.push(g); for (const p of data.state.profiles) if (!store.state.profiles.some(x => x.id === p.id)) store.state.profiles.push(p); await persist(); log('Backup merged. Existing accounts were kept.'); return true; }
@@ -261,7 +291,16 @@ async function poll() {
     if (process.platform === 'win32' && store.state.accounts.some(a => a.window)) { const list = await windows(); for (const a of store.state.accounts) if (a.window) { if (!list.some(w => w.hwnd === a.window.hwnd && w.pid === a.window.pid && w.started === a.window.started)) { if (lease?.accountId === a.id) await releaseControl(); await localPlay.close(a.id); a.status = 'disconnected'; delete a.window; frames.delete(a.id); log(`${a.username} disconnected.`, 'warning', a.id); } else a.lastSeen = Date.now(); } }
     if (lease && lease.until < Date.now()) await releaseControl();
     await Promise.allSettled(store.state.peers.map(async p => { try { const data = await peerRequest(p, store.secrets.peers[p.id], '/state'); peerStates.set(p.id, { ...data, online: true, lastSeen: Date.now() }); } catch (e) { peerStates.set(p.id, { ...peerStates.get(p.id), online: false, error: e.message }); } }));
-    for (const s of store.state.schedules.filter(s => s.status === 'pending' && s.at <= Date.now())) { s.status = 'running'; await persist(); try { if (Date.now() - s.at > 5 * 60000) throw new Error('Missed while Orbit was closed.'); await (s.action === 'launch' ? enqueue(s.accountIds) : stopAccounts(s.accountIds)); s.status = 'done'; log(`Schedule completed: ${s.name}.`); } catch (e) { s.status = 'failed'; s.error = e.message; log(`Schedule ${s.name}: ${e.message}`, 'warning'); } await persist(); }
+    for (const s of store.state.schedules.filter(s => s.status === 'pending' && s.at <= Date.now())) {
+      s.status = 'running'; await persist();
+      try {
+        if (s.recurrence && s.recurrence !== 'once') requireFeature(license.status(), 'advancedSchedules');
+        if (Date.now() - s.at > 5 * 60000) throw new Error('Missed while Orbit was closed.');
+        await (s.action === 'launch' ? enqueue(s.accountIds) : stopAccounts(s.accountIds)); s.status = 'done'; s.error = ''; log(`Schedule completed: ${s.name}.`);
+      } catch (e) { s.status = 'failed'; s.error = e.message; log(`Schedule ${s.name}: ${e.message}`, 'warning'); }
+      const next = nextScheduleAt(s.at, s.recurrence); if (next && license.status().features.advancedSchedules) { s.lastAt = s.at; s.at = next; s.status = 'pending'; }
+      await persist();
+    }
     emit();
   } finally { pollsBusy = false; }
 }
@@ -274,6 +313,12 @@ else {
       encrypt: async value => { if (!encryptionReady()) throw new Error('Secure OS encryption is unavailable.'); return safeStorage.encryptString(value); },
       decrypt: async value => { if (!encryptionReady()) throw new Error('Secure OS encryption is unavailable.'); return safeStorage.decryptString(value); }
     }).load();
+    const serviceConfig = JSON.parse(await readFile(join(here, 'config', 'services.json'), 'utf8'));
+    license = new LicenseClient({ store, config: serviceConfig }); await persist();
+    updates = new UpdateManager({ updater: electronUpdater.autoUpdater, available: app.isPackaged && process.platform === 'win32' && !process.env.PORTABLE_EXECUTABLE_FILE, version: app.getVersion(), settings: () => store.state.settings, changed: emit,
+      canInstall: async () => { if ((await windows()).length || queue?.snapshot.active.length || queue?.snapshot.pending.length || localPlay.current || lease || logins.size) throw new Error('Close Roblox sessions and sign-in windows, and clear the launch queue before restarting to update.'); },
+      prepareInstall: async () => { await persist(); }
+    });
     if (process.platform === 'win32' && store.state.settings.multiSession) await native.call('multi.enable').catch(e => log(e.message, 'warning'));
     queue = new LaunchQueue({ launch, change: emit, settings: () => store.state.settings });
     win = new BrowserWindow({ width: 1560, height: 960, minWidth: 1050, minHeight: 700, frame: false, backgroundColor: '#17191b', title: 'Orbit', icon: join(here, 'renderer', 'assets', 'orbit.png'), webPreferences: { preload: join(here, 'preload.cjs'), sandbox: true, contextIsolation: true, nodeIntegration: false, webSecurity: true } });
@@ -286,6 +331,10 @@ else {
     win.on('close', event => { if (!localPlay.current && !localPlay.pending) return; event.preventDefault(); localPlay.close().then(() => win?.close()).catch(e => dialog.showErrorBox('Close local play first', e.message)); });
     win.on('closed', () => { releaseControl().catch(() => {}); win = null; app.quit(); });
     if (store.state.settings.hostEnabled) await configureHost().catch(e => { hostError = e.message; });
+    license.loadCatalog().then(() => license.refresh()).then(emit).catch(() => {});
+    setInterval(() => license.refresh().then(emit).catch(() => {}), 6 * 3600000).unref();
+    if (store.state.settings.autoUpdate) setTimeout(() => { if (updates.available) updates.check().catch(() => {}); }, 15000).unref();
+    setInterval(() => { if (updates.available && store.state.settings.autoUpdate) updates.check().catch(() => {}); }, 6 * 3600000).unref();
     setInterval(() => poll().catch(() => {}), 3000).unref(); poll().catch(() => {});
   } catch (e) { dialog.showErrorBox('Orbit could not start', e.message); app.quit(); }
   });

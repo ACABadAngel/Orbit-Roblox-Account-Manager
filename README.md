@@ -25,8 +25,8 @@ Exit demo before connecting real accounts.
 Every successful [GitHub Actions build](https://github.com/ACABadAngel/Orbit-Roblox-Account-Manager/actions)
 uploads an **Orbit-Windows** artifact containing:
 
-- `Orbit-Setup-0.2.0-x64.exe`: installer.
-- `Orbit-Portable-0.2.0-x64.exe`: portable application.
+- `Orbit-Setup-0.3.0-x64.exe`: installer.
+- `Orbit-Portable-0.3.0-x64.exe`: portable application.
 
 Open the latest successful run and download the artifact at the bottom of its
 page. These initial builds are unsigned; Windows may show a publisher warning.
@@ -93,6 +93,24 @@ is embedded; other sessions keep their separate windows.
 
 Use a private LAN or VPN for machine pairing; no relay, NAT traversal,
 or public-host discovery is provided.
+
+## Updates and licenses
+
+Install the Setup executable once for background update downloads from GitHub
+Releases. Open **Updates** to check, choose Stable/Beta, or restart to install.
+Restart is blocked while game sessions, sign-in windows, or launches are active.
+Source and portable builds use manual updates.
+
+**Account & License** supports activation keys, signed offline receipts, trials,
+installation management and Stripe-hosted checkout once the license service is
+connected. Free keeps local account management, multiple sessions and native
+local play. Plus adds two managed peer PCs, recurring schedules, saved workflows,
+extended history and alerts. Pro adds five peers and cross-PC bulk launches.
+
+The server and admin dashboard are included in `licensing/`. Hosting, domain,
+public service configuration, Stripe products/credentials and publisher code
+signing still need operator setup. The default build is Free; it does not pretend
+to have a live paid service. See [setup and operational details](docs/licensing/SETUP.md).
 
 ## Multiple sessions on one PC
 

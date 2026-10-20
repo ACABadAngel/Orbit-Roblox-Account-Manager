@@ -1,6 +1,6 @@
 {
   "name": "orbit-roblox-account-manager",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "A calm workspace for your Roblox accounts, machines, and live sessions.",
   "type": "module",
   "main": "app/main.mjs",
@@ -17,10 +17,14 @@
     "test:ui": "node scripts/ui-smoke.mjs",
     "test:desktop": "node scripts/desktop-smoke.mjs",
     "dist": "electron-builder --win nsis portable",
-    "pack": "electron-builder --dir"
+    "pack": "electron-builder --dir",
+    "license:init": "node scripts/license-init.mjs",
+    "license:serve": "node licensing/start.mjs"
   },
   "dependencies": {
-    "selfsigned": "^5.2.0"
+    "electron-updater": "^6.8.9",
+    "selfsigned": "^5.2.0",
+    "stripe": "^23.0.0"
   },
   "devDependencies": {
     "electron": "^44.9.0",
@@ -57,6 +61,18 @@
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true
-    }
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "ACABadAngel",
+        "repo": "Orbit-Roblox-Account-Manager",
+        "releaseType": "release"
+      }
+    ]
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ACABadAngel/Orbit-Roblox-Account-Manager.git"
   }
 }

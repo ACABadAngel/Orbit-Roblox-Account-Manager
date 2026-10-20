@@ -6,3 +6,10 @@ test-results/
 .DS_Store
 orbit-data/
 docs/screenshots/*.png
+
+.orbit-service/
+.env
+.env.*
+!deployment/example.env
+*.pem
+*.sqlite*

@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.3.0
+
+- Add standalone installer updates through GitHub Releases with Stable/Beta
+  channels, background download, explicit restart, and active-session guards.
+- Add Free/Plus/Pro feature permissions in the main process, preserving free
+  local account management, multiple sessions and native local play.
+- Add Account & License, Updates and Workflows screens; recurring schedules,
+  opt-in desktop alerts, extended history and export.
+- Add a separate SQLite license service and protected admin dashboard for
+  permanent/timed/batch keys, custom grants, expiry, revocation and device slots.
+- Verify Ed25519 activation receipts, limit offline access to 72 hours, and keep
+  activation/purchase secrets in the OS-encrypted vault.
+- Add optional Stripe-hosted monthly/yearly/prepaid checkout and billing portal,
+  verified webhook fulfillment, renewal handling and idempotency.
+- Include Docker/HTTPS deployment instructions and public service build config.
+
+The server must be hosted and configured before keys/checkout become available.
+Prices and payment credentials are intentionally not supplied by the app. This
+release has no customer email/password account or recovery service. Existing
+Roblox account data is preserved. Install Setup once to enable future updates.
+
 ## 0.2.0
 
 - Add native same-PC play inside Orbit. The selected Roblox window uses its own

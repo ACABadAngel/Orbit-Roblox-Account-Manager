@@ -1,0 +1,35 @@
+services:
+  licenses:
+    build:
+      context: ..
+      dockerfile: deployment/Dockerfile
+    restart: unless-stopped
+    init: true
+    environment:
+      ORBIT_PUBLIC_URL: https://${LICENSE_DOMAIN:?Set LICENSE_DOMAIN}
+      ORBIT_TRIAL_DAYS: ${ORBIT_TRIAL_DAYS:-0}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+      ORBIT_STRIPE_PRICES: ${ORBIT_STRIPE_PRICES:-}
+    volumes:
+      - license-data:/data
+    expose:
+      - "8787"
+  https:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    environment:
+      LICENSE_DOMAIN: ${LICENSE_DOMAIN:?Set LICENSE_DOMAIN}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - licenses
+volumes:
+  license-data:
+  caddy-data:
+  caddy-config:
