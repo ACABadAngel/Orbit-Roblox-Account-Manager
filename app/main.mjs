@@ -19,11 +19,17 @@ import { authenticationTicket, authenticatedUser, avatarFor, gameDetails, resolv
 import { LaunchQueue } from './core/queue.mjs';
 import { setTimeout as delay } from 'node:timers/promises';
 import { LocalPlay } from './core/local-play.mjs';
+import { StreamHosts } from './stream-host.mjs';
+import { inputEvent, streamOptions } from './core/playback.mjs';
+import { layout as validateLayout, slotBounds } from './core/layouts.mjs';
+import { globalShortcut } from 'electron';
 import { NativeHost } from './core/native.mjs';
 import { startHost, certificate, fingerprint, parsePeer, pinCertificate, peerRequest } from './core/remote.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url)), ui = join(here, 'renderer', 'index.html');
 if (!app.isPackaged && process.env.ORBIT_TEST_DATA) app.setPath('userData', process.env.ORBIT_TEST_DATA);
+let streams;
+const expandedWindows = new Set(), audioApplied = new Map();
 let win, store, queue, server, license, updates, operations, overlay, popout, hostError = '', quitting = false, pollsBusy = false;
 const serverCursors = new Map(), browserLogins = new Map();
 const native = new NativeHost(), logins = new Map(), peerStates = new Map(), frames = new Map(), remoteLeases = new Map();
@@ -82,6 +88,7 @@ async function launchOne(id, cancelled) {
       const added = list.filter(w => !known.has(`${w.hwnd}:${w.started}`) && !s.accounts.some(other => other.id !== id && other.window?.hwnd === w.hwnd));
       if (added.length === 1) {
         a.window = added[0]; a.status = 'running'; a.startedAt = Date.now(); a.lastSeen = Date.now();
+        await applyAutomaticLayout(a.id);
         log(`${a.username} connected to a Roblox window.`, 'info', id);
         if (before.some(old => !list.some(w => w.hwnd === old.hwnd && w.started === old.started))) { const reason = 'An earlier Roblox window closed during launch. Queue paused: check whether your launcher replaced that session.'; queue.pause(reason); log(reason, 'warning', id); }
         return;
@@ -100,7 +107,7 @@ async function enqueue(ids, automatic = false) {
 }
 async function stopAccounts(ids) {
   queue.cancel(ids); for (const id of ids) { const a = get(id); a.relaunchAt = null; a.recoveryAttempts = []; }
-  for (const id of ids) { const a = get(id); await localPlay.close(id); if (lease?.accountId === id) await releaseControl(); if (a.window) await native.call('close', { window: a.window }); a.status = 'idle'; delete a.window; delete a.startedAt; frames.delete(id); delete a.metrics; log(`Stopped ${a.username}.`, 'info', id); }
+  for (const id of ids) { const a = get(id); await streams?.stopAccount(id); await localPlay.close(id); if (lease?.accountId === id) await releaseControl(); if (a.window) await native.call('close', { window: a.window }); a.status = 'idle'; delete a.window; delete a.startedAt; expandedWindows.delete(id); frames.delete(id); delete a.metrics; log(`Stopped ${a.username}.`, 'info', id); }
   await persist(); emit();
 }
 async function loginStart(raw) {
@@ -140,7 +147,7 @@ async function attach(id, selected) {
   const w = available.find(w => w.hwnd === selected.hwnd && w.pid === selected.pid && w.started === selected.started);
   if (!w) throw new Error('That Roblox window is no longer available.');
   if (store.state.accounts.some(other => other.id !== id && other.window?.hwnd === w.hwnd)) throw new Error('That window is attached to another account.');
-  a.window = w; a.status = 'running'; a.startedAt ||= Date.now(); a.lastSeen = Date.now(); a.error = ''; await persist(); emit(); return true;
+  a.window = w; a.status = 'running'; a.startedAt ||= Date.now(); a.lastSeen = Date.now(); a.error = ''; await applyAutomaticLayout(a.id); await persist(); emit(); return true;
 }
 async function sourceFor(id, size = { width: 1280, height: 720 }) {
   const a = get(id); if (!a.window) throw new Error('Attach this account’s Roblox window first.');
@@ -153,7 +160,7 @@ async function sourceFor(id, size = { width: 1280, height: 720 }) {
 async function capture(id) {
   const cached = frames.get(id), minAge = 1000 / store.state.settings.previewFps;
   if (cached && Date.now() - cached.at < minAge) return cached;
-  const source = await sourceFor(id), frame = { data: source.thumbnail.toDataURL(), at: Date.now() };
+  const source = await sourceFor(id), frame = { data: source.thumbnail.toDataURL(), at: Date.now(), geometry: await native.call('geometry', { window: get(id).window }) };
   if (frame.data.length > 2_500_000) throw new Error('Captured frame is too large.'); frames.set(id, frame); return frame;
 }
 async function takeControl(id, owner = 'local') {
@@ -175,16 +182,15 @@ async function releaseControl(owner) {
 async function input(id, event, owner = 'local', leaseToken) {
   if (owner !== 'local' && (!leaseToken || lease?.token !== leaseToken)) throw new Error('This remote-control session is no longer active.');
   if (!lease || lease.owner !== owner || lease.accountId !== id || Date.now() > lease.until) { await releaseControl(owner); throw new Error('Take control before sending input.'); }
-  if (!event || !['mousemove', 'mousedown', 'mouseup', 'keydown', 'keyup', 'wheel', 'heartbeat'].includes(event.type)) throw new Error('Unsupported input event.');
+  event = inputEvent(event);
   lease.until = Date.now() + 10000;
   if (event.type === 'heartbeat') return true;
   if (event.type.startsWith('key')) { if (!Number.isInteger(event.key) || event.key < 8 || event.key > 222 || [91, 92, 93].includes(event.key)) throw new Error('Unsupported key.'); if (event.type === 'keydown') lease.keys.add(event.key); else lease.keys.delete(event.key); }
-  else if (!Number.isFinite(event.x) || !Number.isFinite(event.y) || event.x < 0 || event.x > 1 || event.y < 0 || event.y > 1 || ![undefined, 0, 2].includes(event.button) || (event.type === 'wheel' && (!Number.isFinite(event.delta) || Math.abs(event.delta) > 10000))) throw new Error('Invalid pointer event.');
   try { return await native.call('input', { window: get(id).window, event }); } catch (e) { await releaseControl(owner); throw e; }
 }
 async function configureHost() {
   if (server) { const old = server; server = null; await new Promise(resolve => { old.close(resolve); old.closeAllConnections(); }); }
-  await releaseControl(); hostError = '';
+  await streams?.close(); await releaseControl(); hostError = '';
   if (!store.state.settings.hostEnabled) return;
   store.secrets.host ||= { ...(await certificate()), token: randomBytes(32).toString('hex') }; await persist();
   try { server = await startHost({ identity: store.secrets.host, token: store.secrets.host.token, port: store.state.settings.hostPort, bind: store.state.settings.hostBind,
@@ -194,6 +200,12 @@ async function configureHost() {
       if (body.action === 'launch') { await enqueue(body.ids); return { ok: true }; }
       if (body.action === 'stop') { if (!Array.isArray(body.ids) || body.ids.length > 5000) throw new Error('Invalid selection.'); await stopAccounts(body.ids); return { ok: true }; }
       if (body.action === 'frame') return capture(body.id);
+      if (body.action === 'stream.start') return streams.start(identifier(body.id), owner, body.options);
+      if (body.action === 'stream.answer') return streams.answer(identifier(body.streamId), owner, body.answer);
+      if (body.action === 'stream.ping') return streams.ping(identifier(body.streamId), owner);
+      if (body.action === 'stream.stop') { await streams.stop(identifier(body.streamId), owner); return true; }
+      if (body.action === 'audio') return setAudio(body.ids, body.audio);
+      if (body.action.startsWith('layouts.')) return layoutAction(body.action, body);
       if (body.action === 'control') return takeControl(body.id, owner);
       if (body.action === 'release') { if (lease && (lease.owner !== owner || lease.token !== body.leaseToken)) throw new Error('This control lease belongs to another session.'); await releaseControl(owner); return { ok: true }; }
       if (body.action === 'input') { await input(body.id, body.event, owner, body.leaseToken); return { ok: true }; }
@@ -203,15 +215,96 @@ async function configureHost() {
 }
 async function remote(id, action, body = {}) {
   const [peerId, accountId] = id.split(':');
-  if (!['stop', 'release'].includes(action)) requireRemote(license.status(), store.state.peers.findIndex(p => p.id === peerId)); const p = store.state.peers.find(p => p.id === peerId); if (!p) throw new Error('Paired machine not found.');
+  if (!['stop', 'release', 'stream.stop', 'layouts.restore'].includes(action)) requireRemote(license.status(), store.state.peers.findIndex(p => p.id === peerId)); const p = store.state.peers.find(p => p.id === peerId); if (!p) throw new Error('Paired machine not found.');
   const result = await peerRequest(p, store.secrets.peers[p.id], '/command', { ...body, action, id: accountId, ids: body.ids || [accountId], ...(['input', 'release'].includes(action) ? { leaseToken: remoteLeases.get(id) } : {}) });
-  if (action === 'control') { if (!/^[a-f0-9]{64}$/.test(result.leaseToken)) throw new Error('Invalid control lease from host.'); remoteLeases.set(id, result.leaseToken); return { ok: true }; }
+  if (action === 'control') { if (!/^[a-f0-9]{64}$/.test(result.leaseToken)) throw new Error('Invalid control lease from host.'); remoteLeases.set(id, result.leaseToken); return result; }
   if (action === 'release') remoteLeases.delete(id);
   return result;
 }
+function displays() {
+  return screen.getAllDisplays().map(d => ({ id: String(d.id), name: d.label || `Display ${d.id}`, primary: d.id === screen.getPrimaryDisplay().id, scaleFactor: d.scaleFactor, bounds: d.bounds, workArea: d.workArea, physical: screen.dipToScreenRect(null, d.bounds) }));
+}
+async function layoutAction(name, arg) {
+  if (name === 'layouts.state') return { displays: displays(), layouts: store.state.layouts || [], expanded: [...expandedWindows] };
+  if (name === 'layouts.save') {
+    const value = validateLayout(arg.layout, store.state.accounts); store.state.layouts ||= [];
+    if (value.autoApply) for (const l of store.state.layouts) l.autoApply = false;
+    const i = store.state.layouts.findIndex(l => l.id === value.id);
+    if (i < 0) { if (store.state.layouts.length >= 50) throw new Error('Keep up to 50 layouts.'); store.state.layouts.push(value); } else store.state.layouts[i] = value;
+    await persist(); emit(); return value;
+  }
+  if (name === 'layouts.remove') { store.state.layouts = (store.state.layouts || []).filter(l => l.id !== identifier(arg.layoutId)); await persist(); return true; }
+  if (name === 'layouts.restore') {
+    const results = [];
+    for (const a of store.state.accounts.filter(a => a.window)) { try { await native.call('layout.restore', { window: a.window }); expandedWindows.delete(a.id); results.push({ id: a.id, ok: true }); } catch (e) { results.push({ id: a.id, ok: false, error: e.message }); } }
+    return results;
+  }
+  if (name === 'layouts.expand') {
+    const a = get(arg.accountId); if (!a.window) throw new Error('Launch or attach this window first.');
+    const d = displays().find(d => d.id === String(arg.displayId)); if (!d) throw new Error('Choose an available monitor.');
+    const result = await native.call('layout.expand', { window: a.window, bounds: d.physical });
+    result.expanded ? expandedWindows.add(a.id) : expandedWindows.delete(a.id); return result;
+  }
+  if (name === 'layouts.apply') {
+    const l = (store.state.layouts || []).find(l => l.id === identifier(arg.layoutId)); if (!l) throw new Error('Save this layout first.');
+    const results = [];
+    for (const slot of l.slots) {
+      if (arg.onlyAccountId && slot.accountId !== arg.onlyAccountId) continue;
+      const a = get(slot.accountId);
+      if (!a.window) { results.push({ id: a.id, ok: false, error: 'Not running; placement will apply when this account launches if automatic placement is enabled.' }); continue; }
+      try {
+        const dip = slotBounds(slot, displays().find(d => d.id === slot.displayId), l.gap), bounds = screen.dipToScreenRect(null, dip);
+        const geometry = await native.call('layout.place', { window: a.window, bounds, compact: l.compact }); expandedWindows.delete(a.id);
+        results.push({ id: a.id, ok: true, warning: geometry.outer.width > bounds.width + 8 || geometry.outer.height > bounds.height + 8 ? 'The game enforced a larger minimum size.' : '', geometry });
+      } catch (e) { results.push({ id: a.id, ok: false, error: e.message }); }
+    }
+    return results;
+  }
+  throw new Error('Unsupported layout command.');
+}
+async function applyAutomaticLayout(id) {
+  const l = store.state.layouts?.find(l => l.autoApply && l.slots.some(s => s.accountId === id));
+  if (l) { const results = await layoutAction('layouts.apply', { layoutId: l.id, onlyAccountId: id }); for (const r of results) if (!r.ok || r.warning) log(`Window layout: ${r.error || r.warning}`, 'warning', id); }
+}
+async function setAudio(ids, raw) {
+  if (!Array.isArray(ids) || !ids.length || ids.length > 5000 || !raw || !Number.isFinite(raw.volume) || raw.volume < 0 || raw.volume > 1 || typeof raw.muted !== 'boolean') throw new Error('Choose accounts and a volume between 0 and 100%.');
+  const accounts = [...new Set(ids)].map(get), audio = { volume: raw.volume, muted: raw.muted }, results = [];
+  for (const a of accounts) {
+    a.audio = audio; audioApplied.delete(a.id);
+    if (!a.window) { results.push({ id: a.id, ok: true, pending: true }); continue; }
+    try { const r = await native.call('audio', { window: a.window, ...audio }); if (r.sessions) audioApplied.set(a.id, `${a.window.started}:${JSON.stringify(audio)}`); results.push({ id: a.id, ok: true, pending: !r.sessions }); }
+    catch (e) { results.push({ id: a.id, ok: false, error: e.message }); }
+  }
+  await persist(); emit(); return results;
+}
+
 async function action(name, arg = {}, sourceWindow = win) {
   switch (name) {
     case 'state': return snapshot();
+    case 'layouts.state': case 'layouts.save': case 'layouts.remove': case 'layouts.apply': case 'layouts.restore': case 'layouts.expand': {
+      if (arg.machineId && arg.machineId !== 'local') {
+        const peerId = identifier(arg.machineId); if (name !== 'layouts.restore') requireRemote(license.status(), store.state.peers.findIndex(p => p.id === peerId));
+        return remote(`${peerId}:layout`, name, arg);
+      }
+      return layoutAction(name, arg);
+    }
+    case 'audio.set': {
+      if (!Array.isArray(arg.ids) || !arg.ids.length || arg.ids.length > 5000 || arg.ids.some(id => typeof id !== 'string')) throw new Error('Choose accounts first.');
+      requireBulk(license.status(), arg.ids);
+      const results = [], local = arg.ids.filter(id => !id.includes(':')), groups = new Map();
+      if (local.length) results.push(...await setAudio(local, arg.audio));
+      for (const id of arg.ids.filter(id => id.includes(':'))) { const [peer, a] = id.split(':'); identifier(peer); identifier(a); groups.set(peer, [...(groups.get(peer) || []), a]); }
+      for (const [peer, ids] of groups) { try { const r = await remote(`${peer}:${ids[0]}`, 'audio', { ids, audio: arg.audio }); results.push(...r.map(v => ({ ...v, id: `${peer}:${v.id}` }))); } catch (e) { results.push(...ids.map(id => ({ id: `${peer}:${id}`, ok: false, error: e.message }))); } }
+      return results;
+    }
+    case 'stream.start': return arg.id.includes(':') ? remote(arg.id, 'stream.start', { options: streamOptions(arg.options) }) : streams.start(identifier(arg.id), 'local-view', arg.options);
+    case 'stream.answer': case 'stream.ping': case 'stream.stop': {
+      if (arg.id.includes(':')) return remote(arg.id, name, { streamId: identifier(arg.streamId), answer: arg.answer });
+      if (name === 'stream.answer') return streams.answer(identifier(arg.streamId), 'local-view', arg.answer);
+      if (name === 'stream.ping') return streams.ping(identifier(arg.streamId), 'local-view');
+      await streams.stop(identifier(arg.streamId), 'local-view'); return true;
+    }
+    case 'play.focus': if (localPlay.current !== identifier(arg.id)) throw new Error('No local play session.'); return native.call('dock.focus');
     case 'license.configure': await license.configure(arg); emit(); return license.status();
     case 'license.activate': await license.activate(text(arg.key, 100)); emit(); return license.status();
     case 'license.refresh': await license.loadCatalog(); await license.refresh(); emit(); return license.status();
@@ -284,7 +377,7 @@ async function action(name, arg = {}, sourceWindow = win) {
     case 'login.cancel': { logins.get(arg.id)?.login.close(); return true; }
     case 'accounts.update': { const a = get(arg.id); if ('group' in arg) { if (!store.state.groups.includes(arg.group)) throw new Error('Group not found.'); a.group = arg.group; } if ('alias' in arg) a.alias = text(arg.alias, 80); if ('autoRelaunch' in arg) { if (typeof arg.autoRelaunch !== 'boolean') throw new Error('Invalid relaunch switch.'); a.autoRelaunch = arg.autoRelaunch; if (!arg.autoRelaunch) a.relaunchAt = null; } if ('serverId' in arg) { if (arg.serverId && !store.state.privateServers.some(s => s.id === arg.serverId)) throw new Error('Private server not found.'); a.serverId = arg.serverId; } if ('notes' in arg) a.notes = text(arg.notes, 2000); if ('profileId' in arg) { if (!store.state.profiles.some(p => p.id === arg.profileId)) throw new Error('Profile not found.'); a.profileId = arg.profileId; } await persist(); emit(); return true; }
     case 'accounts.organize': { if (!Array.isArray(arg.ids) || !arg.ids.length || arg.ids.length > 5000) throw new Error('Select local accounts first.'); const accounts = arg.ids.map(get); if (!store.state.groups.includes(arg.group)) throw new Error('Group not found.'); if (arg.profileId && !store.state.profiles.some(p => p.id === arg.profileId)) throw new Error('Profile not found.'); for (const a of accounts) { a.group = arg.group; if (arg.profileId) a.profileId = arg.profileId; } await persist(); emit(); return true; }
-    case 'accounts.remove': { const a = get(arg.id); if (['running', 'launching', 'awaiting-window'].includes(a.status)) throw new Error('Stop this account before removing it.'); queue.cancel([a.id]); store.state.accounts = store.state.accounts.filter(x => x.id !== a.id); delete store.secrets.accounts[a.id]; await persist(); emit(); return true; }
+    case 'accounts.remove': { const a = get(arg.id); if (['running', 'launching', 'awaiting-window'].includes(a.status)) throw new Error('Stop this account before removing it.'); queue.cancel([a.id]); store.state.accounts = store.state.accounts.filter(x => x.id !== a.id); for (const l of store.state.layouts || []) l.slots = l.slots.filter(slot => slot.accountId !== a.id); store.state.layouts = (store.state.layouts || []).filter(l => l.slots.length); delete store.secrets.accounts[a.id]; await persist(); emit(); return true; }
     case 'accounts.launch': case 'accounts.stop': {
       if (!Array.isArray(arg.ids) || !arg.ids.length || arg.ids.length > 5000) throw new Error('Select accounts first.');
       const local = arg.ids.filter(id => !id.includes(':')), peers = new Map();
@@ -311,7 +404,8 @@ async function action(name, arg = {}, sourceWindow = win) {
       try {
         const handle = sourceWindow.getNativeWindowHandle();
         const host = (handle.length === 8 ? handle.readBigUInt64LE() : BigInt(handle.readUInt32LE())).toString();
-        const result = await localPlay.open(a.id, a.window, host, arg.bounds); emit(); return result;
+        await streams?.stopAccount(a.id);
+        const result = await localPlay.open(a.id, a.window, host, arg.bounds); localPlay.hostWindowId = sourceWindow.id; emit(); return result;
       } finally { controlPending = false; }
     }
     case 'play.resize': return localPlay.resize(identifier(arg.id), arg.bounds);
@@ -327,7 +421,7 @@ async function action(name, arg = {}, sourceWindow = win) {
     case 'schedules.add': { const schedule = validateSchedule(arg); if (schedule.recurrence !== 'once') requireFeature(license.status(), 'advancedSchedules'); schedule.accountIds.forEach(get); store.state.schedules.push(schedule); await persist(); emit(); return true; }
     case 'schedules.remove': { store.state.schedules = store.state.schedules.filter(s => s.id !== identifier(arg.id)); await persist(); emit(); return true; }
     case 'backup.export': { const r = await dialog.showSaveDialog(win, { defaultPath: 'orbit-backup.orbit', filters: [{ name: 'Encrypted Orbit backup', extensions: ['orbit'] }] }); if (r.canceled) return false; const secrets = { accounts: store.secrets.accounts || {}, privateServers: store.secrets.privateServers || {} }; const metadata = structuredClone(store.state); metadata.peers = []; metadata.settings.hostEnabled = false; await writeFile(r.filePath, encryptBackup({ state: metadata, secrets }, arg.passphrase), { mode: 0o600 }); log('Encrypted backup exported.'); return true; }
-    case 'backup.import': { const r = await dialog.showOpenDialog(win, { filters: [{ name: 'Encrypted Orbit backup', extensions: ['orbit'] }], properties: ['openFile'] }); if (r.canceled) return false; if ((await stat(r.filePaths[0])).size > 50_000_000) throw new Error('Backup too large.'); const data = decryptBackup(await readFile(r.filePaths[0], 'utf8'), arg.passphrase); validateState(data.state); if (!data.secrets?.accounts || typeof data.secrets.accounts !== 'object' || Object.values(data.secrets.accounts).some(v => typeof v !== 'string' || v.length > 20000 || /[\r\n;]/.test(v))) throw new Error('Invalid vault backup.'); for (const a of data.state.accounts) { if (store.state.accounts.some(x => x.userId === a.userId || x.id === a.id)) continue; a.status = 'idle'; delete a.window; delete a.startedAt; store.state.accounts.push(a); store.secrets.accounts ||= {}; store.secrets.accounts[a.id] = data.secrets.accounts[a.id]; } for (const g of data.state.groups) if (!store.state.groups.includes(g)) store.state.groups.push(g); for (const server of data.state.privateServers || []) if (!store.state.privateServers.some(s => s.id === server.id)) { const secret = data.secrets.privateServers?.[server.id]; if (secret) { privateServer({ ...server, target: secret.url || secret.accessCode }); store.state.privateServers.push(server); store.secrets.privateServers ||= {}; store.secrets.privateServers[server.id] = secret; } } for (const [group, config] of Object.entries(data.state.groupSettings || {})) if (!Object.hasOwn(store.state.groupSettings, group)) Object.defineProperty(store.state.groupSettings, group, { value: launchConfig(config), enumerable: true, configurable: true, writable: true }); for (const p of data.state.profiles) if (!store.state.profiles.some(x => x.id === p.id)) store.state.profiles.push(p); await persist(); log('Backup merged. Existing accounts were kept.'); return true; }
+    case 'backup.import': { const r = await dialog.showOpenDialog(win, { filters: [{ name: 'Encrypted Orbit backup', extensions: ['orbit'] }], properties: ['openFile'] }); if (r.canceled) return false; if ((await stat(r.filePaths[0])).size > 50_000_000) throw new Error('Backup too large.'); const data = decryptBackup(await readFile(r.filePaths[0], 'utf8'), arg.passphrase); validateState(data.state); if (!data.secrets?.accounts || typeof data.secrets.accounts !== 'object' || Object.values(data.secrets.accounts).some(v => typeof v !== 'string' || v.length > 20000 || /[\r\n;]/.test(v))) throw new Error('Invalid vault backup.'); for (const a of data.state.accounts) { if (store.state.accounts.some(x => x.userId === a.userId || x.id === a.id)) continue; a.status = 'idle'; delete a.window; delete a.startedAt; store.state.accounts.push(a); store.secrets.accounts ||= {}; store.secrets.accounts[a.id] = data.secrets.accounts[a.id]; } for (const g of data.state.groups) if (!store.state.groups.includes(g)) store.state.groups.push(g); for (const server of data.state.privateServers || []) if (!store.state.privateServers.some(s => s.id === server.id)) { const secret = data.secrets.privateServers?.[server.id]; if (secret) { privateServer({ ...server, target: secret.url || secret.accessCode }); store.state.privateServers.push(server); store.secrets.privateServers ||= {}; store.secrets.privateServers[server.id] = secret; } } for (const [group, config] of Object.entries(data.state.groupSettings || {})) if (!Object.hasOwn(store.state.groupSettings, group)) Object.defineProperty(store.state.groupSettings, group, { value: launchConfig(config), enumerable: true, configurable: true, writable: true }); for (const p of data.state.profiles) if (!store.state.profiles.some(x => x.id === p.id)) store.state.profiles.push(p); for (const l of data.state.layouts || []) { const slots = l.slots?.filter(slot => store.state.accounts.some(a => a.id === slot.accountId)); if (slots?.length && !(store.state.layouts || []).some(saved => saved.id === l.id)) { const value = validateLayout({ ...l, slots, autoApply: false }, store.state.accounts); store.state.layouts ||= []; if (store.state.layouts.length < 50) store.state.layouts.push(value); } } await persist(); log('Backup merged. Existing accounts were kept.'); return true; }
     case 'window.minimize': sourceWindow.minimize(); return true;
     case 'window.maximize': sourceWindow.isMaximized() ? sourceWindow.unmaximize() : sourceWindow.maximize(); return true;
     case 'window.close': sourceWindow.close(); return true;
@@ -335,6 +429,13 @@ async function action(name, arg = {}, sourceWindow = win) {
     case 'link.open': { const links = { froststrap: 'https://github.com/Froststrap/Froststrap', reference: 'https://github.com/ic3w0lf22/Roblox-Account-Manager', help: 'https://github.com/ACABadAngel/Orbit-Roblox-Account-Manager' }; if (!links[arg.id]) throw new Error('Unknown link.'); await shell.openExternal(links[arg.id]); return true; }
     default: throw new Error('Unsupported Orbit action.');
   }
+}
+
+function followLocalPlayer(window) {
+  let timer;
+  const follow = () => { clearTimeout(timer); timer = setTimeout(() => { if (localPlay.current && localPlay.hostWindowId === window.id && localPlay.bounds) localPlay.resize(localPlay.current, localPlay.bounds).catch(() => {}); }, 16); };
+  window.on('move', follow); window.on('resize', follow); window.on('restore', follow);
+  window.on('closed', () => clearTimeout(timer));
 }
 
 function monitorSnapshot() {
@@ -361,6 +462,8 @@ async function openMonitor(mode) {
     popout.webContents.setWindowOpenHandler(() => ({ action: 'deny' })); popout.webContents.on('will-navigate', e => e.preventDefault());
     popout.on('close', event => { if (localPlay.current || localPlay.pending) { event.preventDefault(); localPlay.close().then(() => popout?.close()).catch(() => {}); } });
     popout.on('closed', () => { popout = null; if (!quitting) { win?.show(); win?.focus(); } });
+    popout.webContents.setWebRTCIPHandlingPolicy('default');
+    followLocalPlayer(popout);
     await popout.loadFile(ui, { hash: 'popout' }); win.hide();
   }
 }
@@ -371,7 +474,12 @@ async function poll() {
     const cpus = os.cpus(); let idle = 0, total = 0;
     cpus.forEach((c, i) => { const old = previousCpu[i]; if (!old) return; for (const k of Object.keys(c.times)) total += c.times[k] - old.times[k]; idle += c.times.idle - old.times.idle; }); previousCpu = cpus;
     localMetrics.cpu = total ? Math.round((1 - idle / total) * 100) : 0; localMetrics.ram = Math.round((1 - os.freemem() / os.totalmem()) * 100);
-    if (process.platform === 'win32' && store.state.accounts.some(a => a.window)) { const list = await windows(); for (const a of store.state.accounts) if (a.window) { if (!list.some(w => w.hwnd === a.window.hwnd && w.pid === a.window.pid && w.started === a.window.started)) { if (lease?.accountId === a.id) await releaseControl(); await localPlay.close(a.id); a.status = 'disconnected'; delete a.window; frames.delete(a.id); delete a.metrics; scheduleRecovery(a, effectiveConfig(store.state, a)); log(`${a.username} disconnected.${a.relaunchAt ? ' Automatic relaunch scheduled.' : ''}`, 'warning', a.id); await persist(); } else { a.lastSeen = Date.now(); const current = list.find(w => w.hwnd === a.window.hwnd && w.pid === a.window.pid && w.started === a.window.started); a.metrics = Number.isFinite(current.memoryBytes) && Number.isFinite(current.totalCpuMs) ? processMetrics(current, a.metrics, Date.now(), os.availableParallelism()) : null; const limit = effectiveConfig(store.state, a).memoryWarningMb; if (limit && a.metrics && a.metrics.memoryBytes > limit * 1048576 && !a.memoryWarned) { a.memoryWarned = true; log(`${a.username} exceeded its ${limit} MB memory warning.`, 'warning', a.id); } if (!limit || !a.metrics || a.metrics.memoryBytes < limit * 1048576 * .9) a.memoryWarned = false; }  } }
+    if (process.platform === 'win32' && store.state.accounts.some(a => a.window)) { const list = await windows(); for (const a of store.state.accounts) if (a.window) { if (!list.some(w => w.hwnd === a.window.hwnd && w.pid === a.window.pid && w.started === a.window.started)) { if (lease?.accountId === a.id) await releaseControl(); await streams?.stopAccount(a.id); await localPlay.close(a.id); expandedWindows.delete(a.id); a.status = 'disconnected'; delete a.window; frames.delete(a.id); delete a.metrics; scheduleRecovery(a, effectiveConfig(store.state, a)); log(`${a.username} disconnected.${a.relaunchAt ? ' Automatic relaunch scheduled.' : ''}`, 'warning', a.id); await persist(); } else { a.lastSeen = Date.now(); const current = list.find(w => w.hwnd === a.window.hwnd && w.pid === a.window.pid && w.started === a.window.started); a.metrics = Number.isFinite(current.memoryBytes) && Number.isFinite(current.totalCpuMs) ? processMetrics(current, a.metrics, Date.now(), os.availableParallelism()) : null; const limit = effectiveConfig(store.state, a).memoryWarningMb; if (limit && a.metrics && a.metrics.memoryBytes > limit * 1048576 && !a.memoryWarned) { a.memoryWarned = true; log(`${a.username} exceeded its ${limit} MB memory warning.`, 'warning', a.id); } if (!limit || !a.metrics || a.metrics.memoryBytes < limit * 1048576 * .9) a.memoryWarned = false; }  } }
+    for (const a of store.state.accounts.filter(a => a.window && a.audio)) {
+      const signature = `${a.window.started}:${JSON.stringify(a.audio)}`;
+      if (audioApplied.get(a.id) === signature) continue;
+      try { const result = await native.call('audio', { window: a.window, ...a.audio }); if (result.sessions) audioApplied.set(a.id, signature); } catch {}
+    }
     for (const a of store.state.accounts) if (a.relaunchAt && a.relaunchAt <= Date.now() && !queue.snapshot.paused) { if (!effectiveConfig(store.state, a).autoRelaunch || a.autoRelaunch === false) { a.relaunchAt = null; continue; } a.relaunchAt = null; a.recoveryAttempts ||= []; a.recoveryAttempts.push(Date.now()); await enqueue([a.id], true); }
     if (lease && lease.until < Date.now()) await releaseControl();
     await Promise.allSettled(store.state.peers.map(async p => { try { const data = await peerRequest(p, store.secrets.peers[p.id], '/state'); peerStates.set(p.id, { ...data, online: true, lastSeen: Date.now() }); } catch (e) { peerStates.set(p.id, { ...peerStates.get(p.id), online: false, error: e.message }); } }));
@@ -408,12 +516,18 @@ else {
     queue = new LaunchQueue({ launch, change: emit, settings: () => store.state.settings, delayFor: id => effectiveConfig(store.state, get(id)).launchDelayMs });
     operations = new AccountOperations({ store, save: persist, changed: emit, log, pause: e => { queue.nextAt = Math.max(queue.nextAt, Date.now() + (e.retryAfterMs || 60000)); queue.pause(e.message); } });
     win = new BrowserWindow({ width: 1560, height: 960, minWidth: 1050, minHeight: 700, frame: false, backgroundColor: '#0c0d10', title: 'Orbit', icon: join(here, 'renderer', 'assets', 'orbit.png'), webPreferences: { preload: join(here, 'preload.cjs'), sandbox: true, contextIsolation: true, nodeIntegration: false, webSecurity: true } });
+    streams = new StreamHosts({ source: async id => ({ source: await sourceFor(id, { width: 0, height: 0 }), geometry: await native.call('geometry', { window: get(id).window }) }), geometry: id => native.call('geometry', { window: get(id).window }), input, release: async (id, owner) => { if (lease?.accountId === id && lease.owner === owner) await releaseControl(owner); } });
+    globalShortcut.register('CommandOrControl+Shift+Backspace', () => {
+      (async () => { await localPlay.close(); for (const id of [...expandedWindows]) { const a = get(id); if (a.window) await native.call('layout.expand', { window: a.window }); expandedWindows.delete(id); } win?.show(); win?.focus(); emit(); })().catch(e => log(e.message, 'warning'));
+    });
+    win.webContents.setWebRTCIPHandlingPolicy('default');
+    followLocalPlayer(win);
     const expected = pathToFileURL(ui).href;
     ipcMain.handle('orbit:action', async (event, name, arg) => { if (![win, popout].some(w => w && !w.isDestroyed() && event.sender === w.webContents) || event.senderFrame !== event.sender.mainFrame || event.senderFrame.url.split('#')[0] !== expected) throw new Error('Untrusted Orbit request.'); try { return { ok: true, value: await action(name, arg, event.sender.getOwnerBrowserWindow()) }; } catch (e) { return { ok: false, error: e.message?.slice(0, 300) || 'The action could not be completed.' }; } });
     ipcMain.handle('orbit:monitor', async (event, name, arg) => { if (![overlay, popout].some(w => w && !w.isDestroyed() && event.sender === w.webContents) || event.senderFrame !== event.sender.mainFrame || event.senderFrame.url.split('#')[0] !== pathToFileURL(join(here, 'renderer', 'monitor.html')).href) throw new Error('Untrusted monitor request.'); try { if (name === 'state') return { ok: true, value: monitorSnapshot() }; if (name === 'monitor.restore') { win.show(); win.focus(); overlay?.close(); popout?.close(); return { ok: true }; } if (name === 'monitor.corner') { positionMonitor(event.sender.getOwnerBrowserWindow(), arg.corner); return { ok: true }; } throw new Error('Unsupported monitor action.'); } catch (e) { return { ok: false, error: e.message }; } });
     win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
     win.webContents.on('will-navigate', event => event.preventDefault());
-    win.webContents.session.setPermissionRequestHandler((_w, _p, callback) => callback(false));
+    win.webContents.session.setPermissionRequestHandler((wc, permission, callback) => callback(permission === 'pointerLock' && [win, popout].some(w => w && !w.isDestroyed() && w.webContents === wc) && wc.getURL().split('#')[0] === expected));
     await win.loadFile(ui);
     win.on('close', event => { if (!localPlay.current && !localPlay.pending) return; event.preventDefault(); localPlay.close().then(() => win?.close()).catch(e => dialog.showErrorBox('Close local play first', e.message)); });
     win.on('closed', () => { releaseControl().catch(() => {}); win = null; app.quit(); });
@@ -429,5 +543,5 @@ else {
 app.on('before-quit', event => {
   if (quitting || !store) return; event.preventDefault(); quitting = true; operations?.cancel(); const browserCleanup = Promise.allSettled([...browserLogins.values()].map(p => p.close()));
   queue?.stop(); for (const { login } of logins.values()) login.close();
-  localPlay.close().catch(() => {}).then(() => releaseControl()).finally(async () => { server?.closeAllConnections(); server?.close(); await browserCleanup; await native.close(); await persist().catch(() => {}); app.quit(); });
+  localPlay.close().catch(() => {}).then(() => streams?.close()).then(() => releaseControl()).finally(async () => { server?.closeAllConnections(); server?.close(); await browserCleanup; await native.close(); await persist().catch(() => {}); app.quit(); });
 });

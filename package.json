@@ -1,6 +1,6 @@
 {
   "name": "orbit-roblox-account-manager",
-  "version": "0.4.1",
+  "version": "0.5.0",
   "description": "A calm workspace for your Roblox accounts, machines, and live sessions.",
   "type": "module",
   "main": "app/main.mjs",
