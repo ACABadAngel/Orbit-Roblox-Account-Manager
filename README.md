@@ -25,8 +25,8 @@ Exit demo before connecting real accounts.
 Every successful [GitHub Actions build](https://github.com/ACABadAngel/Orbit-Roblox-Account-Manager/actions)
 uploads an **Orbit-Windows** artifact containing:
 
-- `Orbit-Setup-0.3.0-x64.exe`: installer.
-- `Orbit-Portable-0.3.0-x64.exe`: portable application.
+- `Orbit-Setup-0.4.0-x64.exe`: installer.
+- `Orbit-Portable-0.4.0-x64.exe`: portable application.
 
 Open the latest successful run and download the artifact at the bottom of its
 page. These initial builds are unsigned; Windows may show a publisher warning.
@@ -34,8 +34,10 @@ You can also build them locally with `npm run dist`.
 
 ## Connect and launch
 
-1. Choose **Add accounts**. Sign in in Roblox's own window, then return to Orbit
-   and choose **Finish sign-in**. Passwords are not collected by Orbit.
+1. Choose **Add accounts → Login from browser** for automatic import through a
+   disposable Chrome/Edge profile. Alternatively, use **Built-in sign-in**,
+   complete Roblox sign-in, and choose **Finish sign-in** in Orbit. Existing
+   sessions can be pasted or loaded from files. Orbit does not collect passwords.
 2. In **Settings → Launch profiles**, enter the numeric place ID from a Roblox
    game URL. Optionally specify a server job ID. Assign profiles through the
    account's **Edit** action.
@@ -49,12 +51,12 @@ You can also build them locally with `npm run dist`.
 Roblox's authentication and launch endpoints can change. A successful protocol
 handoff is not proof of a connected game: **Running** requires a native window.
 Existing running windows can be attached manually. Closing a window is detected
-as **Disconnected**, rather than silently retried forever.
+as **Disconnected**. Optional group auto-relaunch has a bounded recovery budget.
 
 The app manages many account records; the number of simultaneous Roblox clients
 depends on Windows, Roblox, your launcher, the game's rules, and available
-hardware. Orbit does not bypass the client's single-instance restrictions or
-provide gameplay scripts.
+hardware. Multiple sessions require Orbit to hold the session mutexes before
+Roblox starts (see below). Orbit does not patch Roblox or provide gameplay scripts.
 
 ## Remote view and play
 
@@ -135,7 +137,7 @@ Roblox verification behavior.
 
 ## Launch queue and verification
 
-- Configurable spacing (default 15 seconds) and concurrent launch requests
+- Configurable spacing (default 5 seconds, 0–120 seconds per group) and concurrent launch requests
   (default one). These are operational limits, not a promised safe IP threshold.
 - CAPTCHA/challenge headers and rate limits pause the queue. `Retry-After`
   is respected, with a minimum one-minute cooldown on rate-limit responses.
@@ -144,8 +146,9 @@ Roblox verification behavior.
 - Expired sessions and accounts needing verification are skipped until you
   sign in again. Complete Roblox's verification yourself on the host; Orbit
   does not solve or bypass CAPTCHAs.
-- No automatic infinite reconnect loop. Use **Reconnect** deliberately after
-  reviewing the recorded issue.
+- Optional automatic relaunch waits 5–300 seconds after an unexpected exit and
+  stops after three attempts per account in ten minutes. Manual Stop cancels
+  recovery; verification and rate limits pause launches.
 
 ## Included workspace tools
 
@@ -166,14 +169,17 @@ Data lives under Electron's user-data directory in `orbit-data/`:
 
 - `workspace.json`: nonsecret account metadata, settings, schedules and history.
 - `workspace.json.bak`: last metadata backup.
-- `vault.bin`: OS-encrypted Roblox sessions, host key/token, paired-host tokens.
+- `vault.bin`: OS-encrypted Roblox sessions, private invites, host keys and pairing tokens.
 
 On Windows, Electron safeStorage uses DPAPI. The vault is tied to your Windows
 user and is not a replacement for protecting that account. Backup files use
-scrypt and AES-256-GCM with independent random salts/nonces. Login windows use
-temporary, sandboxed, in-memory sessions. The renderer never receives Roblox
-cookies or authentication tickets. Privileged IPC is restricted to the app's
-own main frame. The host is off by default.
+scrypt and AES-256-GCM with independent random salts/nonces. Built-in login uses
+a sandboxed in-memory session; Chrome/Edge login uses a separate throwaway profile.
+Stored vault sessions and authentication tickets are never returned to account
+lists or monitors. The import form contains only sessions explicitly pasted or
+loaded by you and clears them on import/close. Privileged IPC is restricted to
+trusted workspace frames; the overlay has a separate read-only bridge. The host
+is off by default.
 
 Do not copy just `vault.bin` to another computer; export a passphrase-protected
 Orbit backup instead. Keep backups and their passphrases private.
