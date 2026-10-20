@@ -1,29 +1,38 @@
-# 0.5.0 validation checkpoint
+# 0.5.0 validation
 
-This is a source checkpoint, not a Windows release certification.
+Automated validation covers Orbit's implementation and native test windows.
+It is not a certification of real Roblox compatibility or delivered 60 FPS.
 
-Passed locally:
+Passed:
 
-- JavaScript syntax checks and `git diff --check`.
-- All **68** core regression tests, including new coordinate mapping, input
-  ordering, video validation, layout validation and migration cases.
-- Browser UI smoke checks in Chromium: existing account/license flows plus the
-  layout canvas, dragging, saved layouts, live-mode toggle, bulk audio controls,
-  and video settings. Desktop/mobile overflow checks also pass.
+- JavaScript syntax checks, `git diff --check`, and all **68** core regression
+  tests, including coordinate mapping, input ordering, stream validation,
+  layout validation and migration cases.
+- Browser UI smoke checks: account/license flows, layout canvas dragging and
+  saving, live-mode toggle, bulk audio, video settings and responsive overflow.
+- The production WebRTC sender/receiver test in GitHub's Linux browser runner:
+  real video decoding from a synthetic capture source, ordered input delivery,
+  negotiation and cleanup. The player also waits for both video transport and
+  the input data channel before automatic control.
+- Windows helper parsing and C# compilation, desktop startup/persistence,
+  certificate-pinned HTTPS pairing and existing license/account flows.
+- Windows native fixtures: scan-code keyboard input, mouse clicks, owned
+  top-level local play, monitor layouts, expand/restore, audio enumeration and
+  saved preferences, and actual HWND window capture decoded through WebRTC
+  at a **requested** 60 FPS. Fixtures do not establish audible volume changes
+  on the user's audio device or a sustained frame-rate benchmark.
 
-Still pending:
+Windows fixtures first passed in the
+[0.5.0 validation run](https://github.com/ACABadAngel/Orbit-Roblox-Account-Manager/actions/runs/39472612068).
+The workflow reruns these checks for subsequent revisions and publishes the
+installer only after packaging and update-feed checksum verification pass.
 
-- The real WebRTC sender/receiver smoke could produce negotiation descriptions,
-  but this restricted environment exposed no local ICE candidates. A connection
-  and video decode were therefore **not verified locally**. The app now reports
-  the missing network address explicitly.
-- Windows PowerShell/C# compilation and the native fixture smoke, which now
-  checks keyboard/mouse delivery, monitor placement, restoration, audio RPC and
-  actual window capture/video decoding.
-- The Windows installer build and update-feed verification.
-- Real Roblox use on two Windows PCs, including relative camera movement,
-  game-specific focus behaviour, mixed-DPI displays and delivered frame rate.
+Manual checks still needed on the user's PCs:
 
-The GitHub workflow includes browser video and Windows fixture checks. Publishing
-the source branch was rejected by automatic approval review, so these GitHub
-checks and installer publication have not run for 0.5.0.
+- Real Roblox movement, camera capture and game-specific focus/capture behaviour.
+- Two-PC LAN/VPN operation, mixed-DPI displays and actual delivered frame rate.
+- Audible per-client volume/mute changes with the user's audio output device.
+
+The restricted local development environment exposed no ICE network candidates,
+so video transport was verified on GitHub's runners instead. The app explicitly
+reports missing local video addresses and connection failures.

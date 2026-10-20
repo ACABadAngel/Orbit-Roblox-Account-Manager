@@ -254,7 +254,7 @@ async function openTheatre(id, control = false) {
   modal.addEventListener('scroll', resize, true);
   document.addEventListener('fullscreenchange', resize);
   modalClose = async () => { observer.disconnect(); modal.removeEventListener('scroll', resize, true); window.removeEventListener('resize', resize); document.removeEventListener('fullscreenchange', resize); if (document.pointerLockElement) document.exitPointerLock(); await t.video?.stop(); if (theatre === t) theatre = null; if (!demo) await call(a.peerId ? 'control.release' : 'play.close', { id }).catch(() => {}); };
-  wireRemoteInput(); if (a.peerId && !demo) await startVideo(t); else await updateFrames(); if (control && !demo && theatre === t) await toggleControl();
+  wireRemoteInput(); if (a.peerId && !demo) await startVideo(t); else await updateFrames(); if (control && !demo && theatre === t && (!a.peerId || t.video?.ready)) await toggleControl();
 }
 function localBounds() {
   const r = modal.querySelector('#remote-surface').getBoundingClientRect();

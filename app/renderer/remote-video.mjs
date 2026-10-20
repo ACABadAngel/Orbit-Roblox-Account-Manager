@@ -1,6 +1,6 @@
 import { gather } from './rtc.mjs';
 export class RemoteVideo {
-  constructor({ call, id, surface, diagnostics, onError }) { Object.assign(this, { call, id, surface, diagnostics, onError }); this.closed = false; this.ready = false; this.leaseToken = null; this.lastStats = null; }
+  constructor({ call, id, surface, diagnostics, onError }) { Object.assign(this, { call, id, surface, diagnostics, onError }); this.closed = false; this.ready = false; this.leaseToken = null; this.lastStats = null; this.readiness = new Promise(resolve => { this.resolveReady = resolve; }); }
   async start(options) {
     try {
       const session = await this.call('stream.start', { id: this.id, options }); this.session = session;
@@ -11,10 +11,10 @@ export class RemoteVideo {
       video.autoplay = true; video.playsInline = true; video.muted = true; video.setAttribute('aria-label', 'Live Roblox video stream');
       this.surface.replaceChildren(video);
       this.connection.ontrack = event => { video.srcObject = event.streams[0] || new MediaStream([event.track]); video.play().catch(() => {}); };
-      this.connection.ondatachannel = event => { this.channel = event.channel; this.channel.onmessage = message => { try { const r = JSON.parse(message.data); if (r.telemetry) this.telemetry = r.telemetry; if (r.error) { this.leaseToken = null; this.onError(r.error); } } catch {} }; };
+      this.connection.ondatachannel = event => { this.channel = event.channel; this.channel.onopen = () => this.updateReady(); this.channel.onclose = () => { if (!this.closed) { this.updateReady(); this.leaseToken = null; this.onError('Input connection closed. Control was released. Reopen Remote Play to reconnect.'); } }; this.updateReady(); this.channel.onmessage = message => { try { const r = JSON.parse(message.data); if (r.telemetry) this.telemetry = r.telemetry; if (r.error) { this.leaseToken = null; this.onError(r.error); } } catch {} }; };
       this.connection.onconnectionstatechange = () => {
         if (this.closed) return;
-        this.ready = this.connection.connectionState === 'connected';
+        this.updateReady();
         if (this.connection.connectionState === 'failed') this.fail('Video connection failed. Allow Orbit through Windows Firewall on the private network of both PCs. Use the same LAN or VPN; no relay is configured.');
         if (this.connection.connectionState === 'disconnected') { this.leaseToken = null; this.onError('Video disconnected. Control was released. Reopen this session if it does not reconnect.'); }
       };
@@ -25,8 +25,10 @@ export class RemoteVideo {
       this.keepalive = setInterval(() => { this.call('stream.ping', { id: this.id, streamId: session.id }).then(r => { if (r.geometry) this.geometry = r.geometry; }).catch(e => this.fail(e.message)); }, 4000);
       this.statsTimer = setInterval(() => this.stats(options).catch(() => {}), 1000);
       this.connectTimer = setTimeout(() => { if (!this.ready) this.fail('Video could not connect. Allow Orbit through the private-network firewall on both PCs; video uses direct UDP in addition to the HTTPS pairing port.'); }, 15000);
+      await this.readiness;
     } catch (error) { if (!this.closed) this.fail(error.message); }
   }
+  updateReady() { this.ready = !this.closed && this.connection?.connectionState === 'connected' && this.channel?.readyState === 'open'; if (this.ready) { clearTimeout(this.connectTimer); this.resolveReady(true); } }
   send(event) {
     if (!this.leaseToken || this.channel?.readyState !== 'open') return false;
     if (this.channel.bufferedAmount > 32768) { this.leaseToken = null; this.onError('Input connection is congested. Control was released.'); return false; }
@@ -46,7 +48,7 @@ export class RemoteVideo {
   }
   fail(message) { if (this.closed) return; this.onError(message); this.stop().catch(() => {}); }
   async stop() {
-    this.closed = true; this.ready = false; this.leaseToken = null;
+    this.closed = true; this.ready = false; this.leaseToken = null; this.resolveReady(false);
     clearTimeout(this.connectTimer); clearInterval(this.keepalive); clearInterval(this.statsTimer);
     this.channel?.close(); this.connection?.close(); this.video?.srcObject?.getTracks().forEach(t => t.stop());
     if (this.session) { const id = this.session.id; this.session = null; await this.call('stream.stop', { id: this.id, streamId: id }).catch(() => {}); }

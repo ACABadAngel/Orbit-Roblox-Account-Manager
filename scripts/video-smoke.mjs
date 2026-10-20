@@ -48,6 +48,7 @@ try {
     window.qaVideoErrors = [];
     window.qaPlayer = new RemoteVideo({ call: (name, arg) => window.qaViewerCall(name, arg), id: 'fixture', surface, diagnostics: null, onError: message => window.qaVideoErrors.push(message) });
     await window.qaPlayer.start({ fps: 60, height: 720, bitrate: 8, adaptive: true });
+    if (!window.qaPlayer.ready && !window.qaVideoErrors.length) throw new Error('Player returned before video and input were ready.');
   });
   try { await viewer.waitForFunction(() => window.qaPlayer.ready && window.qaPlayer.video?.videoWidth > 0 && window.qaPlayer.channel?.readyState === 'open', undefined, { timeout: 20000 }); }
   catch (error) {
