@@ -419,7 +419,7 @@ else {
     win.on('closed', () => { releaseControl().catch(() => {}); win = null; app.quit(); });
     if (store.state.settings.hostEnabled) await configureHost().catch(e => { hostError = e.message; });
     license.loadCatalog().then(() => license.refresh()).then(emit).catch(() => {});
-    setInterval(() => license.refresh().then(emit).catch(() => {}), 6 * 3600000).unref();
+    setInterval(() => { if (Date.now() < license.lastCheck - 5000 || Date.now() - license.lastCheck >= license.refreshInterval) license.refresh().then(emit).catch(() => {}); }, 30000).unref();
     if (store.state.settings.autoUpdate) setTimeout(() => { if (updates.available) updates.check().catch(() => {}); }, 15000).unref();
     setInterval(() => { if (updates.available && store.state.settings.autoUpdate) updates.check().catch(() => {}); }, 6 * 3600000).unref();
     setInterval(() => poll().catch(() => {}), 3000).unref(); poll().catch(() => {});

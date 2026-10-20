@@ -1,5 +1,8 @@
 # Publishing Orbit and connecting its license service
 
+For hosted KeyAuth licensing, use [the KeyAuth setup guide](KEYAUTH.md).
+The self-hosted service and Stripe setup below are an alternative provider.
+
 The Windows installer is standalone. Customers do not need Node, npm, Git, or
 these server tools. Install `Orbit-Setup-0.3.0-x64.exe` once to bootstrap future
 in-app updates. The portable executable and source checkout use manual updates.

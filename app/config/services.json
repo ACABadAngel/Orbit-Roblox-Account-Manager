@@ -1,4 +1,15 @@
 {
+  "provider": "keyauth",
+  "keyauth": {
+    "name": "",
+    "ownerid": "",
+    "version": "1.0",
+    "subscriptions": {
+      "free": "free",
+      "plus": "plus",
+      "pro": "pro"
+    }
+  },
   "serverUrl": "",
   "publicKey": ""
 }

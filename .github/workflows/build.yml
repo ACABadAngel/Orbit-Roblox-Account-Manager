@@ -51,6 +51,11 @@ jobs:
         timeout-minutes: 3
       - name: Configure the public license service
         env:
+          ORBIT_LICENSE_PROVIDER: ${{ vars.ORBIT_LICENSE_PROVIDER }}
+          ORBIT_KEYAUTH_NAME: ${{ vars.ORBIT_KEYAUTH_NAME }}
+          ORBIT_KEYAUTH_OWNER_ID: ${{ vars.ORBIT_KEYAUTH_OWNER_ID }}
+          ORBIT_KEYAUTH_VERSION: ${{ vars.ORBIT_KEYAUTH_VERSION }}
+          ORBIT_KEYAUTH_SUBSCRIPTIONS: ${{ vars.ORBIT_KEYAUTH_SUBSCRIPTIONS }}
           ORBIT_LICENSE_SERVICE_URL: ${{ vars.ORBIT_LICENSE_SERVICE_URL }}
           ORBIT_LICENSE_PUBLIC_KEY: ${{ vars.ORBIT_LICENSE_PUBLIC_KEY }}
         run: node scripts/configure-services.mjs

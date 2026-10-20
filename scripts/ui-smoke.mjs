@@ -141,6 +141,42 @@ try {
   await nativePage.getByRole('button', { name: 'Play here', exact: true }).waitFor();
   await nativePage.getByRole('button', { name: 'Close session', exact: true }).click();
   await nativePage.close();
+  // Exercise KeyAuth setup and activation through the real renderer and an isolated IPC fixture.
+  const keyPage = await browser.newPage();
+  keyPage.on('pageerror', err => errors.push(err.message));
+  const keyState = sampleState(); keyState.platform = 'win32';
+  keyState.license = { provider: 'keyauth', plan: 'free', name: 'Free', state: 'free', configured: false, maxDevices: 0, features: {}, catalog: { offers: [] }, keyauth: { name: '', ownerid: '', version: '1.0', subscriptions: { free: 'free', plus: 'plus', pro: 'pro' } }, capabilities: { installations: false, billing: false } };
+  await keyPage.addInitScript(snapshot => {
+    window.licenseCalls = [];
+    window.orbit = { onChange: () => () => {}, call: async (name, arg) => {
+      if (name === 'state') return snapshot;
+      window.licenseCalls.push({ name, arg });
+      if (name === 'license.configure') { Object.assign(snapshot.license, { configured: true, keyauth: arg.keyauth }); return snapshot.license; }
+      if (name === 'license.activate') { Object.assign(snapshot.license, { state: 'active', name: 'Plus', plan: 'plus', keyHint: '•••• Case' }); return snapshot.license; }
+      throw new Error('Unexpected license fixture action: ' + name);
+    } };
+  }, keyState);
+  await keyPage.goto(url);
+  await keyPage.getByRole('button', { name: 'Account & License', exact: true }).click();
+  await keyPage.getByRole('button', { name: 'Connect service', exact: true }).click();
+  await keyPage.getByLabel('Application name', { exact: true }).fill('Orbit test');
+  await keyPage.getByLabel('Owner ID', { exact: true }).fill('abcdefghij');
+  await keyPage.getByRole('button', { name: 'Self-hosted service', exact: true }).click();
+  await keyPage.getByLabel('Public verification key', { exact: true }).waitFor();
+  await keyPage.getByRole('button', { name: 'KeyAuth', exact: true }).click();
+  await keyPage.getByLabel('Application name', { exact: true }).fill('Orbit test');
+  await keyPage.getByLabel('Owner ID', { exact: true }).fill('abcdefghij');
+  await keyPage.locator('#modal').getByRole('button', { name: 'Connect service', exact: true }).click();
+  await keyPage.getByRole('button', { name: 'Activate a key', exact: true }).click();
+  await keyPage.getByLabel('Activation key', { exact: true }).fill('Keep-This-Case');
+  await keyPage.getByRole('button', { name: 'Activate key', exact: true }).click();
+  await keyPage.getByRole('heading', { name: 'Orbit Plus', exact: true }).waitFor();
+  const licenseCalls = await keyPage.evaluate(() => window.licenseCalls);
+  assert.equal(licenseCalls[0].arg.provider, 'keyauth');
+  assert.equal(licenseCalls[0].arg.keyauth.version, '1.0');
+  assert.equal(licenseCalls[1].arg.key, 'Keep-This-Case');
+  for (const label of ['Manage installations', 'Manage billing']) assert.equal(await keyPage.getByRole('button', { name: label, exact: true }).count(), 0);
+  await keyPage.close();
   assert.deepEqual(errors, []);
   console.log('UI smoke checks passed: empty state, demo isolation, table/search/selection, groups, live view, remote dialog, machines, schedules, themes, and responsive layout.');
 } finally { await browser.close(); server.close(); }

@@ -289,11 +289,18 @@ function accountMenu(id, anchor) {
   document.body.append(el); const r = anchor.getBoundingClientRect(); el.style.left = `${Math.max(5, Math.min(window.innerWidth - 200, r.right - 190))}px`; el.style.top = `${Math.max(5, Math.min(window.innerHeight - el.offsetHeight - 10, r.bottom + 5))}px`;
 }
 function activationModal() {
-  showModal('Activate an Orbit key', '<p>Paste the complete key you received. It unlocks only its assigned features and never changes your Roblox sign-in.</p><label>Activation key<input name="key" autocomplete="off" spellcheck="false" maxlength="100" required placeholder="ORBIT-…"></label>', cancel() + submit('Activate key'), async fd => { await call('license.activate', { key: String(fd.get('key')).trim().toUpperCase() }); modal.close(); toast('License activated.'); });
+  const keyauth = state.license?.provider === 'keyauth';
+  showModal(keyauth ? 'Activate a KeyAuth key' : 'Activate an Orbit key', `<p>Paste the complete key you received. ${keyauth ? 'KeyAuth keys are case-sensitive. An online check is required for paid features.' : 'It unlocks only its assigned features and never changes your Roblox sign-in.'}</p><label>Activation key<input name="key" autocomplete="off" spellcheck="false" maxlength="100" required placeholder="${keyauth ? 'Your KeyAuth license key' : 'ORBIT-…'}"></label>`, cancel() + submit('Activate key'), async fd => { const raw = String(fd.get('key')).trim(); await call('license.activate', { key: keyauth ? raw : raw.toUpperCase() }); modal.close(); toast('License activated.'); });
 }
-function serviceModal() {
-  const l = state.license || {};
-  showModal('Connect a license service', `<p>Use the publisher's HTTPS service address and public verification key. The private signing key must stay on the server.</p><label>Service URL<input type="url" name="serverUrl" value="${e(l.serverUrl || '')}" placeholder="https://licenses.example.com" required></label><label>Public verification key<textarea name="publicKey" rows="5" required placeholder="-----BEGIN PUBLIC KEY-----">${e(l.publicKey || '')}</textarea></label>`, cancel() + submit('Connect service'), async fd => { await call('license.configure', Object.fromEntries(fd)); modal.close(); toast('License service connected.'); });
+function serviceModal(provider = state.license?.provider || 'keyauth') {
+  const l = state.license || {}, k = l.keyauth || {}, keyauth = provider === 'keyauth';
+  const switcher = `<div class="row">${btn('license.configure.keyauth', 'KeyAuth', '', keyauth ? 'primary' : '', 'type="button"')}${btn('license.configure.orbit', 'Self-hosted service', '', !keyauth ? 'primary' : '', 'type="button"')}</div>`;
+  const fields = keyauth ? `<p>Enter the public application details from your KeyAuth dashboard. Saving this connection requires fresh key activation.</p><input type="hidden" name="provider" value="keyauth"><label>Application name<input name="name" value="${e(k.name || '')}" maxlength="100" required autocomplete="off"></label><label>Owner ID<input name="ownerid" value="${e(k.ownerid || '')}" pattern="[a-zA-Z0-9]{10}" maxlength="10" required autocomplete="off"></label><label>KeyAuth application version<input name="version" value="${e(k.version || '1.0')}" maxlength="30" required></label><div class="form-grid"><label>Plus subscription name<input name="plus" value="${e(k.subscriptions?.plus || 'plus')}" maxlength="100" required></label><label>Pro subscription name<input name="pro" value="${e(k.subscriptions?.pro || 'pro')}" maxlength="100" required></label></div><p>Use the exact subscription names from KeyAuth. No app secret, seller key, or account password is needed.</p>` : `<input type="hidden" name="provider" value="orbit"><p>Use the publisher's HTTPS service address and public verification key. The private signing key stays on the server.</p><label>Service URL<input type="url" name="serverUrl" value="${e(l.provider === 'keyauth' ? '' : l.serverUrl || '')}" placeholder="https://licenses.example.com" required></label><label>Public verification key<textarea name="publicKey" rows="5" required placeholder="-----BEGIN PUBLIC KEY-----">${e(l.publicKey || '')}</textarea></label>`;
+  showModal('Connect a license service', switcher + fields, cancel() + submit('Connect service'), async fd => {
+    const raw = Object.fromEntries(fd);
+    await call('license.configure', keyauth ? { provider: 'keyauth', keyauth: { name: raw.name, ownerid: raw.ownerid, version: raw.version, subscriptions: { ...(k.subscriptions || {}), plus: raw.plus, pro: raw.pro } } } : raw);
+    modal.close(); toast('License service connected.');
+  });
 }
 async function licenseDevices() {
   const result = await call('license.devices');
@@ -310,10 +317,12 @@ async function handle(action, data, el) {
   switch (action) {
     case 'license.activate.open': activationModal(); return;
     case 'license.configure.open': serviceModal(); return;
+    case 'license.configure.keyauth': serviceModal('keyauth'); return;
+    case 'license.configure.orbit': serviceModal('orbit'); return;
     case 'license.refresh': await call('license.refresh'); toast('License checked.'); break;
     case 'license.devices': await licenseDevices(); return;
     case 'license.deactivate': confirm('Deactivate installation?', 'This frees an installation slot. The selected PC returns to Free when it checks its license.', async () => { await call('license.deactivate', { deviceId: data.device }); }, 'Deactivate'); return;
-    case 'license.forget': confirm('Remove this key?', 'Remove the activation key from this PC. Your Roblox accounts stay saved. Deactivate this installation first if you also want to free its license slot.', () => call('license.forget'), 'Remove key'); return;
+    case 'license.forget': confirm('Remove this key?', 'Remove the activation key from this PC. Your Roblox accounts stay saved. This does not reset a KeyAuth HWID binding or free a server activation slot.', () => call('license.forget'), 'Remove key'); return;
     case 'license.trial': await call('license.trial'); toast('Trial activated.'); break;
     case 'license.checkout': await call('license.checkout', { offer: data.offer }); toast('Checkout opened in your browser. Return here after paying.'); break;
     case 'license.purchase.cancel': confirm('Cancel pending checkout?', 'Orbit will expire the unfinished checkout. A completed or processing payment must be checked first.', async () => { const result = await call('license.purchase.cancel'); toast(result.paid ? 'Payment confirmed. License activated.' : 'Unfinished checkout cancelled.'); }, 'Cancel checkout'); return;

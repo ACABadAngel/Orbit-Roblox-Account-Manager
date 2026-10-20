@@ -25,8 +25,8 @@ Exit demo before connecting real accounts.
 Every successful [GitHub Actions build](https://github.com/ACABadAngel/Orbit-Roblox-Account-Manager/actions)
 uploads an **Orbit-Windows** artifact containing:
 
-- `Orbit-Setup-0.4.0-x64.exe`: installer.
-- `Orbit-Portable-0.4.0-x64.exe`: portable application.
+- `Orbit-Setup-0.4.1-x64.exe`: installer.
+- `Orbit-Portable-0.4.1-x64.exe`: portable application.
 
 Open the latest successful run and download the artifact at the bottom of its
 page. These initial builds are unsigned; Windows may show a publisher warning.
@@ -103,7 +103,12 @@ Releases. Open **Updates** to check, choose Stable/Beta, or restart to install.
 Restart is blocked while game sessions, sign-in windows, or launches are active.
 Source and portable builds use manual updates.
 
-**Account & License** supports activation keys, signed offline receipts, trials,
+**Account & License** now supports hosted **KeyAuth** license-only activation.
+See [KeyAuth setup](docs/licensing/KEYAUTH.md) for public app configuration,
+Plus/Pro subscriptions, timed/giveaway keys, and per-feature grants. KeyAuth mode
+checks paid access online; Free stays available without a key.
+
+The separate self-hosted service supports activation keys, signed offline receipts, trials,
 installation management and Stripe-hosted checkout once the license service is
 connected. Free keeps local account management, multiple sessions and native
 local play. Plus adds two managed peer PCs, recurring schedules, saved workflows,
