@@ -22,7 +22,7 @@ export class Ledger {
   audit(action, id) { this.db.prepare('INSERT INTO audit(at,action,licenseId) VALUES(?,?,?)').run(this.now(), action, id || null); }
   transaction(run) { this.db.exec('BEGIN IMMEDIATE'); try { const result = run(); this.db.exec('COMMIT'); return result; } catch (e) { this.db.exec('ROLLBACK'); throw e; } }
   create({ plan = 'free', days = null, label = 'Manual key', maxActivations = 1, features = {}, maxDevices, expiresAt = null } = {}) {
-    const allowed = entitlements(plan, features, maxDevices);
+    let allowed; try { allowed = entitlements(plan, features, maxDevices); } catch (e) { throw problem(e.message); }
     if (days !== null && (!Number.isInteger(days) || days < 1 || days > 36500)) throw problem('Choose 1–36500 days, or permanent.');
     if (!Number.isInteger(maxActivations) || maxActivations < 1 || maxActivations > 100) throw problem('Choose 1–100 activated installations.');
     if (expiresAt !== null && (!Number.isSafeInteger(expiresAt) || expiresAt <= this.now())) throw problem('Choose a future expiry date.');

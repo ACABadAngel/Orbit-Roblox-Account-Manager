@@ -12,7 +12,7 @@ export class Billing {
     for (const [id, priceId] of Object.entries(this.prices)) {
       if (!OFFER_NAMES[id] || typeof priceId !== 'string' || !priceId.startsWith('price_')) continue;
       const price = await this.stripe.prices.retrieve(priceId), [plan, mode, label] = OFFER_NAMES[id];
-      if (!price.active || price.unit_amount === null || (mode === 'subscription' ? price.recurring?.interval !== (id.endsWith('.year') ? 'year' : 'month') || price.recurring?.interval_count !== 1 : Boolean(price.recurring))) continue;
+      if (!price.active || (price.unit_amount === null || price.unit_amount <= 0) || (mode === 'subscription' ? price.recurring?.interval !== (id.endsWith('.year') ? 'year' : 'month') || price.recurring?.interval_count !== 1 : Boolean(price.recurring))) continue;
       offers.push({ id, plan, label, amount: price.unit_amount, currency: price.currency, renewal: mode === 'subscription' });
     }
     return offers;

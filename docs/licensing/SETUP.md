@@ -8,7 +8,9 @@ in-app updates. The portable executable and source checkout use manual updates.
 
 The build workflow tests on Linux and Windows, packages NSIS and portable builds,
 and uploads the installer, `.blockmap` and `latest.yml` update feed as artifacts.
-A `v` tag matching package.json publishes those tested assets to GitHub Releases.
+A new package version pushed to main publishes those tested assets to GitHub
+Releases, creating its matching `v` tag. Existing versions are never overwritten.
+An explicit matching `v` tag can also publish a release.
 For example, release `v0.3.1` only after changing package.json and its lockfile to
 0.3.1. Beta versions use a suffix such as `0.4.0-beta.1` and a prerelease tag.
 

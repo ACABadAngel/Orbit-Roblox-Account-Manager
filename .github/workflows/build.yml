@@ -46,6 +46,7 @@ jobs:
           $r = Get-Content native-result.json -Raw | ConvertFrom-Json
           if ($r.error -or $r.id -ne 1) { throw 'Windows helper smoke check failed.' }
       - run: npm run test:desktop
+        timeout-minutes: 3
       - run: node scripts/local-play-smoke.mjs
         timeout-minutes: 3
       - name: Configure the public license service
@@ -56,6 +57,7 @@ jobs:
       - run: npm run dist -- --publish never
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      - run: node scripts/verify-release.mjs
       - uses: actions/upload-artifact@v4
         with:
           name: Orbit-Windows
@@ -67,7 +69,7 @@ jobs:
           if-no-files-found: error
 
   publish:
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
     needs: windows
     runs-on: ubuntu-latest
     permissions:
@@ -84,9 +86,17 @@ jobs:
           GH_REPO: ${{ github.repository }}
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
+          if [[ "$RELEASE_TAG" == "main" ]]; then
+            RELEASE_TAG="v$(node -p 'require("./package.json").version')"
+            if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+              echo "This version is already published; bump package.json for a new release."
+              exit 0
+            fi
+          fi
+          export RELEASE_TAG
           node -e 'const p = require("./package.json"); if (process.env.RELEASE_TAG !== "v" + p.version) process.exit(1);'
           if [[ "$RELEASE_TAG" == *-* ]]; then
-            gh release create "$RELEASE_TAG" release/* --verify-tag --title "Orbit ${RELEASE_TAG#v}" --generate-notes --prerelease
+            gh release create "$RELEASE_TAG" release/* --target "$GITHUB_SHA" --title "Orbit ${RELEASE_TAG#v}" --generate-notes --prerelease
           else
-            gh release create "$RELEASE_TAG" release/* --verify-tag --title "Orbit ${RELEASE_TAG#v}" --generate-notes
+            gh release create "$RELEASE_TAG" release/* --target "$GITHUB_SHA" --title "Orbit ${RELEASE_TAG#v}" --generate-notes
           fi
