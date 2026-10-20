@@ -32,6 +32,10 @@ try {
   assert.equal(JSON.stringify(await page.evaluate(() => window.orbit.call('state'))).includes(invite), false);
   await page.evaluate(() => window.orbit.call('groups.rename', { name: 'Desktop QA', next: 'Renamed QA' }));
   assert.equal((await page.evaluate(() => window.orbit.call('state'))).groupSettings['Renamed QA'].launchDelayMs, 0);
+  const browserLogin = await page.evaluate(() => window.orbit.call('browser.start', { group: 'Main' }));
+  assert.equal((await page.evaluate(id => window.orbit.call('browser.status', { id }), browserLogin.id)).closed, false);
+  await page.evaluate(id => window.orbit.call('browser.cancel', { id }), browserLogin.id);
+  assert.equal((await page.evaluate(id => window.orbit.call('browser.status', { id }), browserLogin.id)).closed, true);
   const monitorEvent = instance.waitForEvent('window');
   await page.evaluate(() => window.orbit.call('monitor.open', { mode: 'overlay' }));
   const monitor = await monitorEvent; await monitor.getByText('Back to workspace', { exact: true }).waitFor();
@@ -63,5 +67,5 @@ try {
   await page.evaluate(() => window.orbit.call('license.refresh'));
   assert.equal((await page.evaluate(() => window.orbit.call('state'))).license.plan, 'free');
   assert.equal((await page.evaluate(() => window.orbit.call('state'))).machines.length, 2);
-  console.log('Desktop smoke passed: sandbox preload/IPC, Windows helper, local persistence, real HTTPS host, pinned pairing, account-manager configs, redacted invites, isolated overlay, popout IPC, and demo isolation.');
+  console.log('Desktop smoke passed: sandbox preload/IPC, Windows helper, local persistence, real HTTPS host, pinned pairing, account-manager configs, redacted invites, disposable-browser startup/cancellation, isolated overlay, popout IPC, and demo isolation.');
 } finally { await instance.close(); await rm(dir, { recursive: true, force: true }); await new Promise(r => { server.close(r); server.closeAllConnections(); }); ledger.close(); }

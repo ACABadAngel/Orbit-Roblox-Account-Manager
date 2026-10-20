@@ -427,7 +427,7 @@ else {
   });
 }
 app.on('before-quit', event => {
-  if (quitting || !store) return; event.preventDefault(); quitting = true; operations?.cancel(); for (const p of browserLogins.values()) p.close().catch(() => {});
+  if (quitting || !store) return; event.preventDefault(); quitting = true; operations?.cancel(); const browserCleanup = Promise.allSettled([...browserLogins.values()].map(p => p.close()));
   queue?.stop(); for (const { login } of logins.values()) login.close();
-  localPlay.close().catch(() => {}).then(() => releaseControl()).finally(async () => { server?.closeAllConnections(); server?.close(); await native.close(); await persist().catch(() => {}); app.quit(); });
+  localPlay.close().catch(() => {}).then(() => releaseControl()).finally(async () => { server?.closeAllConnections(); server?.close(); await browserCleanup; await native.close(); await persist().catch(() => {}); app.quit(); });
 });

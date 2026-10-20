@@ -17,13 +17,14 @@ export async function browserLogin({ connected, changed = () => {} }) {
   let executable; for (const file of candidates) { if (await stat(file).then(s => s.isFile()).catch(() => false)) { executable = file; break; } }
   if (!executable) throw new Error('Install Microsoft Edge or Google Chrome, or use the built-in sign-in window.');
   const directory = await mkdtemp(join(tmpdir(), 'orbit-signin-'));
-  let outcome = null, lastError = '', lastCookie = '', child, socket, stopped = false, processing = false, nextId = 0, timer; const requests = new Map();
-  const close = async () => {
-    if (stopped) return; stopped = true; clearTimeout(timer); socket?.close();
+  let outcome = null, lastError = '', lastCookie = '', child, socket, stopped = false, processing = false, nextId = 0, timer, closePromise, finished = false; const requests = new Map();
+  const close = () => {
+    if (closePromise) return closePromise; stopped = true;
+    closePromise = (async () => { clearTimeout(timer); socket?.close();
     for (const { reject, timer } of requests.values()) { clearTimeout(timer); reject(new Error('Sign-in closed.')); } requests.clear();
     child?.kill();
     for (let i = 0; i < 10; i++) { try { await rm(directory, { recursive: true, force: true }); break; } catch { await delay(300); } }
-    changed();
+    })().finally(() => { finished = true; changed(); }); return closePromise;
   };
   const send = (method, params = {}) => new Promise((resolve, reject) => {
     if (socket?.readyState !== WebSocket.OPEN || stopped) return reject(new Error('Sign-in browser is closed.'));
@@ -49,11 +50,11 @@ export async function browserLogin({ connected, changed = () => {} }) {
       try {
         const result = await send('Storage.getCookies');
         const cookie = result.cookies?.find(c => c.name === '.ROBLOSECURITY' && ['.roblox.com','www.roblox.com','roblox.com'].includes(c.domain));
-        if (cookie && cookie.value !== lastCookie && !processing) { processing = true; lastCookie = cookie.value; try { outcome = await connected(cookie.value); await close(); return; } catch { lastError = 'Roblox could not validate this session. Complete sign-in or verification, or cancel and try again.'; processing = false; } }
+        if (cookie && cookie.value !== lastCookie && !processing) { processing = true; lastCookie = cookie.value; try { outcome = await connected(cookie.value); processing = false; await close(); return; } catch { lastError = 'Roblox could not validate this session. Complete sign-in or verification, or cancel and try again.'; processing = false; } }
       } catch {}
       if (!stopped) timer = setTimeout(poll, 2000);
     };
     timer = setTimeout(poll, 2000);
-    return { close, get outcome() { return outcome; }, get error() { return lastError; }, get closed() { return stopped; } };
+    return { close, get outcome() { return outcome; }, get error() { return lastError; }, get closed() { return finished && !processing; } };
   } catch (e) { await close(); throw e; }
 }
