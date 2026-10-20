@@ -68,7 +68,7 @@ try {
   await page.evaluate(() => window.orbit.call('layouts.restore'));
   assert.equal((await inspect(firstWindow.hwnd)).style, original.style);
   const audio = await page.evaluate(() => window.orbit.call('audio.set', { ids: ['test-1','test-2'], audio: { volume: .2, muted: true } }));
-  assert.ok(audio.every(r => r.ok));
+  assert.ok(audio.every(r => r.ok), JSON.stringify(audio));
   assert.ok((await page.evaluate(() => window.orbit.call('state'))).accounts.every(a => a.audio.volume === .2 && a.audio.muted));
   // Hit a known client coordinate and verify the window received it there.
   await competitor.call('focus', { window: firstWindow });
