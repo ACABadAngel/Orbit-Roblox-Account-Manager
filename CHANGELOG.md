@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.5.0
+
+- Add direct WebRTC window video with 30/60 FPS targets, H.264 preference,
+  bitrate/resolution controls, adaptive resolution, and live connection metrics.
+- Map remote clicks to displayed game pixels and native client geometry;
+  add scan-code keys, ordered/coalesced input and relative camera mouse capture.
+- Keep same-PC play as a foreground-capable owned native window, with explicit
+  focus, move/resize following, original-placement restoration and a return shortcut.
+- Add a monitor-aware Layouts editor, saved multi-monitor grids, drag/resize,
+  focus presets, compact direct sizing, automatic placement and expand/restore.
+- Add per-client and bulk Windows audio controls with saved volume/mute settings.
+- Extend core/browser/native-window checks. Real Roblox compatibility and delivered
+  60 FPS remain hardware/network-dependent manual checks.
+
 ## 0.3.0
 
 - Add standalone installer updates through GitHub Releases with Stable/Beta

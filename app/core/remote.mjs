@@ -29,7 +29,7 @@ export function peerRequest(peer, secret, path, body) {
       method: payload ? 'POST' : 'GET', ca: peer.certificate, rejectUnauthorized: true, minVersion: 'TLSv1.2',
       checkServerIdentity: (_hostname, cert) => fingerprint(cert.raw) === peer.fingerprint ? undefined : new Error('Host certificate changed. Pair again.'),
       headers: { Authorization: `Bearer ${secret}`, ...(payload ? { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(payload) } : {}) },
-      timeout: 10000
+      timeout: body?.action === 'stream.start' ? 30000 : 10000
     }, res => {
       let data = '', bytes = 0; res.setEncoding('utf8');
       res.on('data', chunk => { bytes += Buffer.byteLength(chunk); if (bytes > 3_000_000) req.destroy(new Error('Host response too large.')); else data += chunk; });

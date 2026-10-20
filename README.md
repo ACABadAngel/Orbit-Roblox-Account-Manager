@@ -25,8 +25,8 @@ Exit demo before connecting real accounts.
 Every successful [GitHub Actions build](https://github.com/ACABadAngel/Orbit-Roblox-Account-Manager/actions)
 uploads an **Orbit-Windows** artifact containing:
 
-- `Orbit-Setup-0.4.1-x64.exe`: installer.
-- `Orbit-Portable-0.4.1-x64.exe`: portable application.
+- `Orbit-Setup-0.5.0-x64.exe`: installer.
+- `Orbit-Portable-0.5.0-x64.exe`: portable application.
 
 Open the latest successful run and download the artifact at the bottom of its
 page. These initial builds are unsigned; Windows may show a publisher warning.
@@ -79,22 +79,34 @@ checks the window's process ID and process start time before input. Only one
 account/controller can hold a control lease at once. Losing focus, closing the
 player, or a lease timeout releases injected keys and mouse buttons.
 
-**Current remote-play limits:** this version uses PNG window previews at a
-configurable 1–10 FPS target, rather than a video codec. Actual rate depends on
-capture speed and network latency. Audio, relative/pointer-lock camera input,
-and gamepad input are not implemented. Roblox must be restored on the host;
-minimized/locked-desktop and some GPU configurations may not capture correctly.
-For same-PC play, **Remote Play → Play here** embeds the actual native Roblox
-window inside Orbit. This uses the game's own rendering, sound, and normal OS
-input; the 1–10 FPS preview setting does not limit it. Click inside to focus the
-game. **Return to preview** or **Close session** restores the original separate
-window, including its position and window state. Use windowed mode and run Orbit
-and Roblox at the same permission level. Fullscreen changes made by the game,
-DPI differences, or client updates may affect embedding. Only the selected game
-is embedded; other sessions keep their separate windows.
+**Remote Play in 0.5.0:** the selected remote session uses direct WebRTC window
+video with 30/60 FPS targets, 480p/720p/1080p quality, bitrate controls, adaptive
+resolution, and capture/receive/network diagnostics. Dashboard thumbnails retain
+the independent 1–10 FPS setting. Both PCs need 0.5.0 and private-network firewall
+permission for Orbit, including UDP. Pairing/signaling remain certificate-pinned
+HTTPS. There is no internet relay or STUN/TURN service; use a LAN or private VPN.
+Streaming audio and gamepad input are not implemented. Actual delivery rate and
+Roblox compatibility require testing on the user's Windows PCs.
 
-Use a private LAN or VPN for machine pairing; no relay, NAT traversal,
-or public-host discovery is provided.
+Remote input excludes video black bars/window decorations and uses scan-code
+keyboard events. **Take control → Capture mouse** enables relative camera input.
+Escape, blur, disconnects and control expiry release held input. Only one account
+can receive foreground input on a host at once.
+
+For same-PC play, **Remote Play → Play here** aligns an owned native game window
+with the player area, retaining native rendering, audio and foreground focus.
+**Return to preview** restores its separate placement and styles. Use windowed
+mode and equal permission levels. **Ctrl + Shift + Backspace** returns to Orbit.
+
+**Layouts** detects monitors and their resolution/scaling. Arrange, drag/resize,
+save and apply grids, enable placement after launch, or click tiles in live mode
+to expand/restore actual windows. Compact borderless sizing attempts direct
+native sizing; game-enforced minimums are reported rather than guaranteed away.
+**Audio** applies saved per-process volume/mute to accounts, groups and machines.
+It changes all client audio, not game-specific music settings.
+
+See [Remote Play, layouts and audio](docs/REMOTE_PLAY_LAYOUTS.md) for setup,
+network requirements, restoration controls, limitations and validation scope.
 
 ## Updates and licenses
 

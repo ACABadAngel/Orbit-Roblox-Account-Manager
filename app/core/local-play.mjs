@@ -13,7 +13,7 @@ export class LocalPlay {
     return this.serial(async () => {
       if (this.current) throw new Error('Close the current local play session first.');
       await this.native.call('dock', { window, host, bounds: area });
-      this.current = id;
+      this.current = id; this.bounds = area;
       return { mode: 'native' };
     });
   }
@@ -21,13 +21,13 @@ export class LocalPlay {
     const area = playBounds(bounds);
     return this.serial(async () => {
       if (this.current !== id) throw new Error('This local play session is no longer active.');
-      await this.native.call('dock.resize', { bounds: area }); return true;
+      await this.native.call('dock.resize', { bounds: area }); this.bounds = area; return true;
     });
   }
   close(id) {
     return this.serial(async () => {
       if (!this.current || (id && this.current !== id)) return;
-      await this.native.call('undock'); this.current = null;
+      await this.native.call('undock'); this.current = null; this.bounds = null;
     });
   }
 }

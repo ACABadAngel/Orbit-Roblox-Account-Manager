@@ -24,6 +24,8 @@ jobs:
       - run: npm test
       - run: npx playwright install --with-deps chromium
       - run: npm run test:ui
+      - run: node scripts/video-smoke.mjs
+        timeout-minutes: 2
       - run: node scripts/admin-smoke.mjs
   windows:
     runs-on: windows-latest

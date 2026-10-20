@@ -1,8 +1,8 @@
 import { randomUUID } from 'node:crypto';
 
 export const STATUSES = ['idle', 'queued', 'launching', 'awaiting-window', 'running', 'disconnected', 'verification', 'expired', 'error'];
-export const DEFAULTS = Object.freeze({ launchDelayMs: 5000, maxConcurrent: 1, launcherPath: '', theme: 'dark', previewFps: 3, autoUpdate: true, updateChannel: 'stable', desktopAlerts: false, multiSession: true, autoRelaunch: false, relaunchDelayMs: 5000, memoryWarningMb: 0, hostEnabled: false, hostPort: 43128, hostBind: '127.0.0.1', allowRemoteControl: false });
-export const initialState = () => ({ version: 1, accounts: [], groups: ['Main', 'Trading', 'Testing'], profiles: [{ id: 'default', name: 'Default', placeId: '', jobId: '' }], settings: { ...DEFAULTS }, peers: [], schedules: [], workflows: [], activity: [], groupSettings: {}, privateServers: [] });
+export const DEFAULTS = Object.freeze({ launchDelayMs: 5000, maxConcurrent: 1, launcherPath: '', theme: 'dark', previewFps: 3, streamFps: 60, streamHeight: 720, streamBitrate: 8, streamAdaptive: true, autoUpdate: true, updateChannel: 'stable', desktopAlerts: false, multiSession: true, autoRelaunch: false, relaunchDelayMs: 5000, memoryWarningMb: 0, hostEnabled: false, hostPort: 43128, hostBind: '127.0.0.1', allowRemoteControl: false });
+export const initialState = () => ({ version: 1, accounts: [], groups: ['Main', 'Trading', 'Testing'], profiles: [{ id: 'default', name: 'Default', placeId: '', jobId: '' }], settings: { ...DEFAULTS }, peers: [], schedules: [], workflows: [], activity: [], groupSettings: {}, privateServers: [], layouts: [] });
 export function text(value, max = 120) { if (typeof value !== 'string' || value.length > max) throw new Error('Invalid text value.'); return value.trim(); }
 export function identifier(value) { if (typeof value !== 'string' || !/^[a-zA-Z0-9_-]{1,100}$/.test(value) || ['__proto__', 'constructor', 'prototype'].includes(value)) throw new Error('Invalid identifier.'); return value; }
 export function number(value, min, max) { if (!Number.isFinite(value) || value < min || value > max) throw new Error(`Expected a number between ${min} and ${max}.`); return value; }
@@ -18,10 +18,13 @@ export function validateSettings(input, previous = DEFAULTS) {
   if ('relaunchDelayMs' in input) s.relaunchDelayMs = number(input.relaunchDelayMs, 5000, 300000);
   if ('memoryWarningMb' in input) s.memoryWarningMb = number(input.memoryWarningMb, 0, 65536);
   if ('maxConcurrent' in input) s.maxConcurrent = number(input.maxConcurrent, 1, 5) | 0;
+  if ('streamFps' in input) { if (![30, 60].includes(input.streamFps)) throw new Error('Choose 30 or 60 FPS.'); s.streamFps = input.streamFps; }
+  if ('streamHeight' in input) { if (![480, 720, 1080].includes(input.streamHeight)) throw new Error('Choose a supported resolution.'); s.streamHeight = input.streamHeight; }
+  if ('streamBitrate' in input) s.streamBitrate = number(input.streamBitrate, 1, 40);
   if ('previewFps' in input) s.previewFps = number(input.previewFps, 1, 10) | 0;
   if ('launcherPath' in input) { s.launcherPath = text(input.launcherPath, 1024); if (s.launcherPath && !/^[a-zA-Z]:\\.+\.exe$/i.test(s.launcherPath)) throw new Error('Choose a Windows launcher .exe.'); }
   if ('theme' in input) { if (!['dark', 'light'].includes(input.theme)) throw new Error('Invalid theme.'); s.theme = input.theme; }
-  for (const key of ['hostEnabled', 'allowRemoteControl', 'multiSession', 'autoUpdate', 'desktopAlerts', 'autoRelaunch']) if (key in input) { if (typeof input[key] !== 'boolean') throw new Error('Invalid switch.'); s[key] = input[key]; }
+  for (const key of ['streamAdaptive', 'hostEnabled', 'allowRemoteControl', 'multiSession', 'autoUpdate', 'desktopAlerts', 'autoRelaunch']) if (key in input) { if (typeof input[key] !== 'boolean') throw new Error('Invalid switch.'); s[key] = input[key]; }
   if ('updateChannel' in input) { if (!['stable', 'beta'].includes(input.updateChannel)) throw new Error('Invalid update channel.'); s.updateChannel = input.updateChannel; }
   if ('hostPort' in input) s.hostPort = number(input.hostPort, 1024, 65535) | 0;
   if ('hostBind' in input) { if (!['127.0.0.1', '0.0.0.0'].includes(input.hostBind)) throw new Error('Invalid listening address.'); s.hostBind = input.hostBind; }
@@ -33,13 +36,15 @@ export function validateState(s) {
   for (const a of s.accounts) { identifier(a.id); text(a.username, 40); text(a.displayName, 80); text(a.group, 80); if (!Number.isSafeInteger(a.userId) || a.userId < 1 || ids.has(a.id)) throw new Error('Invalid or duplicate account.'); ids.add(a.id); }
   s.groups.forEach(g => text(g, 80)); s.profiles = s.profiles.map(validateProfile); s.settings = validateSettings({ ...(s.settings || {}), ...(s.settings?.launchDelayMs > 120000 ? { launchDelayMs: 120000 } : {}) }); s.workflows ||= []; if (!Array.isArray(s.workflows) || s.workflows.length > 100) throw new Error('Invalid workflows.');
   if (!Array.isArray(s.peers) || !Array.isArray(s.schedules) || !Array.isArray(s.activity)) throw new Error('Invalid Orbit data.');
+  s.layouts ||= []; if (!Array.isArray(s.layouts) || s.layouts.length > 50) throw new Error('Invalid window layouts.');
+  for (const a of s.accounts) if (a.audio && (!Number.isFinite(a.audio.volume) || a.audio.volume < 0 || a.audio.volume > 1 || typeof a.audio.muted !== 'boolean')) throw new Error('Invalid audio preference.');
   s.groupSettings ||= {}; s.privateServers ||= [];
   if (!s.groupSettings || Array.isArray(s.groupSettings) || typeof s.groupSettings !== 'object' || !Array.isArray(s.privateServers) || s.privateServers.length > 500) throw new Error('Invalid launch settings.');
   for (const server of s.privateServers) { identifier(server.id); text(server.name, 80); if (!/^[1-9]\d{0,19}$/.test(server.placeId)) throw new Error('Invalid private server.'); }
   return s;
 }
 export function publicAccount(a) {
-  return { id: a.id, userId: a.userId, username: a.username, displayName: a.displayName, group: a.group, profileId: a.profileId, notes: a.notes || '', alias: a.alias || '', health: a.health || 'unknown', checkedAt: a.checkedAt || null, lastLaunchedAt: a.lastLaunchedAt || null, autoRelaunch: a.autoRelaunch !== false, serverId: a.serverId || '', relaunchAt: a.relaunchAt || null, metrics: a.metrics ? { pid: a.metrics.pid, cpu: a.metrics.cpu, memoryBytes: a.metrics.memoryBytes, at: a.metrics.at } : null, avatar: a.avatar || '', status: a.status, machineId: a.machineId || 'local', startedAt: a.startedAt || null, lastSeen: a.lastSeen || null, addedAt: a.addedAt, game: a.game || '', error: a.error || '', windowAttached: Boolean(a.window), hasFrame: Boolean(a.hasFrame) };
+  return { audio: { volume: a.audio?.volume ?? 1, muted: Boolean(a.audio?.muted) }, id: a.id, userId: a.userId, username: a.username, displayName: a.displayName, group: a.group, profileId: a.profileId, notes: a.notes || '', alias: a.alias || '', health: a.health || 'unknown', checkedAt: a.checkedAt || null, lastLaunchedAt: a.lastLaunchedAt || null, autoRelaunch: a.autoRelaunch !== false, serverId: a.serverId || '', relaunchAt: a.relaunchAt || null, metrics: a.metrics ? { pid: a.metrics.pid, cpu: a.metrics.cpu, memoryBytes: a.metrics.memoryBytes, at: a.metrics.at } : null, avatar: a.avatar || '', status: a.status, machineId: a.machineId || 'local', startedAt: a.startedAt || null, lastSeen: a.lastSeen || null, addedAt: a.addedAt, game: a.game || '', error: a.error || '', windowAttached: Boolean(a.window), hasFrame: Boolean(a.hasFrame) };
 }
 export function activity(state, message, level = 'info', accountId = '') { state.activity.unshift({ id: randomUUID(), at: Date.now(), message, level, accountId }); state.activity = state.activity.slice(0, 1000); }
 
