@@ -5,7 +5,7 @@ public static class OrbitAudio {
   [ComImport, Guid("A95664D2-9614-4F35-A746-DE8DB63617E6"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)] interface IDevices {
     [PreserveSig] int EnumAudioEndpoints(int flow, uint state, out ICollection devices);
   }
-  [ComImport, Guid("0BD7A1BE-7A1A-44DB-8397-C0A937E729B8"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)] interface ICollection {
+  [ComImport, Guid("0BD7A1BE-7A1A-44DB-8397-CC5392387B5E"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)] interface ICollection {
     [PreserveSig] int GetCount(out uint count);
     [PreserveSig] int Item(uint i, out IDevice device);
   }
