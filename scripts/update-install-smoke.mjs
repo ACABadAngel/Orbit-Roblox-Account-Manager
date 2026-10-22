@@ -3,6 +3,7 @@
 import assert from 'node:assert/strict';
 import { spawn, execFileSync } from 'node:child_process';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { _electron } from 'playwright';
@@ -19,8 +20,9 @@ function runInstaller(args) {
   });
 }
 function processes() {
-  const result = execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', "@(Get-Process Orbit -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $env:ORBIT_INSTALL_TEST_EXE } | Select-Object Id, MainWindowHandle) | ConvertTo-Json -Compress"], { encoding: 'utf8', env: { ...process.env, ORBIT_INSTALL_TEST_EXE: exe } }).trim();
-  if (!result) return []; const value = JSON.parse(result); return Array.isArray(value) ? value : [value];
+  const result = execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', "@(Get-Process Orbit -ErrorAction SilentlyContinue | Select-Object Id, Path, MainWindowHandle) | ConvertTo-Json -Compress"], { encoding: 'utf8', env: { ...process.env, ORBIT_INSTALL_TEST_EXE: exe } }).trim();
+  if (!result) return []; const value = JSON.parse(result);
+  return (Array.isArray(value) ? value : [value]).filter(p => { try { return realpathSync(p.Path).toLowerCase() === realpathSync(exe).toLowerCase(); } catch { return false; } });
 }
 let instance;
 try {
