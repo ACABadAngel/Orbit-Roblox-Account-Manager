@@ -24,9 +24,14 @@ function processes() {
 }
 let instance;
 try {
+  console.log('Installing the Windows fixture into a temporary folder.');
   await runInstaller(['/S', '/currentuser', `/D=${installDir}`]);
+  console.log('Opening the installed application.');
   instance = await _electron.launch({ executablePath: exe, args: ['--disable-gpu'], timeout: 30000 });
+  instance.process().stderr.on('data', data => console.log('Installed app stderr:', data.toString().slice(0, 3000)));
   const page = await instance.firstWindow();
+  page.on('pageerror', error => console.log('Installed renderer error:', error.message));
+  page.on('console', message => { if (message.type() === 'error') console.log('Installed renderer console:', message.text()); });
   await page.getByRole('heading', { name: 'A calmer space for all your accounts.' }).waitFor();
   const userData = await instance.evaluate(({ app }) => app.getPath('userData'));
   await page.evaluate(async () => { await window.orbit.call('settings.save', { autoUpdate: false }); await window.orbit.call('groups.add', { name: 'Upgrade preservation fixture' }); });
@@ -40,6 +45,12 @@ try {
   assert.ok(saved.groups.includes('Upgrade preservation fixture'), 'Updating must preserve the workspace.');
   assert.equal(saved.settings.autoUpdate, false);
   console.log('Installer upgrade passed: legacy --updated launch is silent, reopens Orbit, preserves installation folder and workspace.');
+} catch (error) {
+  if (instance) for (const page of instance.windows()) {
+    console.log('Installed window:', page.url());
+    console.log('Installed renderer body:', (await page.locator('body').innerText().catch(() => '')).slice(0, 6000));
+  }
+  throw error;
 } finally {
   if (instance) await instance.close().catch(() => {});
   for (const p of processes()) { try { process.kill(p.Id); } catch {} }
