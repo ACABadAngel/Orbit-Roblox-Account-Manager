@@ -110,10 +110,14 @@ network requirements, restoration controls, limitations and validation scope.
 
 ## Updates and licenses
 
-Install the Setup executable once for background update downloads from GitHub
-Releases. Open **Updates** to check, choose Stable/Beta, or restart to install.
+Install the Setup executable once to enable in-app updates from GitHub Releases.
+At startup, a small prompt blurs the workspace and offers **Not now** or **Update**.
+Only accepting Update downloads the new version, installs quietly, and reopens
+Orbit. Deferring keeps the current version; downloaded updates remain available
+in the sidebar. **Settings → Updates** contains manual checks and Stable/Beta.
 Restart is blocked while game sessions, sign-in windows, or launches are active.
-Source and portable builds use manual updates.
+Source and portable builds use manual updates. First-time Setup still lets you
+choose an installation folder; updater launches skip the setup wizard.
 
 **Account & License** now supports hosted **KeyAuth** license-only activation.
 See [KeyAuth setup](docs/licensing/KEYAUTH.md) for public app configuration,
@@ -233,3 +237,15 @@ implementation and does not bundle either project's code. See
 ## Account manager 0.4
 
 A cleaner graphite workspace adds bulk session/file import, disposable Chrome/Edge sign-in, health checks, aliases, group launch settings, private-server pools/assignment, bounded automatic relaunch, process CPU/memory/PID, a command palette, popout management, and an always-on-top monitor. Existing local native play, paired PC control, licensing, and updates remain available. See [account-manager setup and limitations](docs/ACCOUNT_MANAGER.md).
+
+## A simpler workspace · 0.6.0
+
+Start with Accounts, Live view, Layouts, and Machines. **More tools** contains
+Audio, Schedules, Workflows, and Activity. **Ctrl+K** searches actions directly.
+
+Accounts starts with the essentials: name, status, game, and Open/Launch.
+**Detailed view** restores health, resource usage, and inline assignments.
+**Filters** opens status and machine filters. Select accounts for bulk actions,
+or click a row for its preview and expandable session details. Workspace actions
+such as health checks, popout, overlay, and Stop all are in the three-dot menu
+beside Launch settings. Settings are grouped into smaller categories.

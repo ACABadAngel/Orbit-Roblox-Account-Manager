@@ -64,6 +64,8 @@ jobs:
       - run: npm run dist -- --publish never
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      - run: node scripts/update-install-smoke.mjs
+        timeout-minutes: 3
       - run: node scripts/verify-release.mjs
       - uses: actions/upload-artifact@v4
         with:

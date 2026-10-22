@@ -1,6 +1,6 @@
 {
   "name": "orbit-roblox-account-manager",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "A calm workspace for your Roblox accounts, machines, and live sessions.",
   "type": "module",
   "main": "app/main.mjs",
@@ -61,7 +61,8 @@
       "artifactName": "Orbit-Setup-${version}-${arch}.${ext}",
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
-      "createDesktopShortcut": true
+      "createDesktopShortcut": true,
+      "include": "build/installer.nsh"
     },
     "publish": [
       {

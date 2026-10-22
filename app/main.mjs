@@ -317,7 +317,9 @@ async function action(name, arg = {}, sourceWindow = win) {
     case 'license.purchase': { const result = await license.collectPurchase(); emit(); return result; }
     case 'license.billing': await shell.openExternal(await license.billingPortal()); return true;
     case 'updates.check': return updates.check();
-    case 'updates.install': await updates.install(); return true;
+    case 'updates.start': return updates.start();
+    case 'updates.defer': return updates.defer();
+    case 'updates.install': return updates.start();
     case 'updates.configure': {
       const next = validateSettings(arg, store.state.settings); if (next.updateChannel !== store.state.settings.updateChannel) updates.setChannel(next.updateChannel);
       store.state.settings.autoUpdate = next.autoUpdate; store.state.settings.updateChannel = next.updateChannel; await persist(); emit(); return true;
@@ -534,7 +536,7 @@ else {
     if (store.state.settings.hostEnabled) await configureHost().catch(e => { hostError = e.message; });
     license.loadCatalog().then(() => license.refresh()).then(emit).catch(() => {});
     setInterval(() => { if (Date.now() < license.lastCheck - 5000 || Date.now() - license.lastCheck >= license.refreshInterval) license.refresh().then(emit).catch(() => {}); }, 30000).unref();
-    if (store.state.settings.autoUpdate) setTimeout(() => { if (updates.available) updates.check().catch(() => {}); }, 15000).unref();
+    if (store.state.settings.autoUpdate) setTimeout(() => { if (updates.available) updates.check().catch(() => {}); }, 1500).unref();
     setInterval(() => { if (updates.available && store.state.settings.autoUpdate) updates.check().catch(() => {}); }, 6 * 3600000).unref();
     setInterval(() => poll().catch(() => {}), 3000).unref(); poll().catch(() => {});
   } catch (e) { dialog.showErrorBox('Orbit could not start', e.message); app.quit(); }

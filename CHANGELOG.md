@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.6.0
+
+- Reduce the main sidebar to four everyday pages. Put Audio, Schedules,
+  Workflows and Activity in More tools, with quick actions still available.
+- Default to a simpler account table. Keep health, process metrics, inline
+  assignments and private servers in Detailed view; show filters on demand.
+- Move secondary workspace actions into a menu, show batch controls only
+  after selection, and collapse session diagnostics in the account drawer.
+- Split Settings into General, Launching, Remote, Updates and Account & License.
+  Preserve unsaved form edits across category changes and workspace refreshes.
+- Show a compact startup update prompt over a blurred workspace with Not now
+  and Update. Check automatically, download only after acceptance, show progress,
+  and silently install and reopen Orbit when no sessions or sign-ins are active.
+- Deferring during a download cancels the automatic restart. Keep downloaded
+  updates available in the sidebar and never install simply because Orbit exits.
+- Also silence --updated installer launches from older clients. First-time setup
+  keeps the installation location picker. Portable/source updates remain manual.
+
 ## 0.5.0
 
 - Add direct WebRTC window video with 30/60 FPS targets, H.264 preference,
