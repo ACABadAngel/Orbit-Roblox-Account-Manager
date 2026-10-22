@@ -36,6 +36,11 @@ Portable and source builds continue to use manual updates.
 
 ## Validation
 
+The installed-app check also caught Windows short-path spelling differences.
+Renderer IPC now resolves both paths to the same canonical file while retaining
+owned-window and main-frame checks. Other files, web URLs and query strings
+remain rejected.
+
 Core regression checks include consent, failed-download retries, active-session
 protection, deferral races, channels, quiet install flags and automatic reopen.
 Browser checks exercise the actual renderer, including hidden/detailed controls,

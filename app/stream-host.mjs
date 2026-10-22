@@ -1,6 +1,7 @@
 import { BrowserWindow, ipcMain, session } from 'electron';
 import { randomUUID } from 'node:crypto';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
+import { rendererFile } from './core/renderer-file.mjs';
 import { description, streamOptions } from './core/playback.mjs';
 
 // Only this restricted, hidden renderer can capture the one validated HWND.
@@ -8,9 +9,10 @@ export class StreamHosts {
   constructor({ source, geometry, input, release }) {
     this.sessions = new Map(); this.source = source; this.geometry = geometry; this.input = input; this.release = release;
     this.file = fileURLToPath(new URL('./renderer/stream-host.html', import.meta.url));
+    const trustedCapture = rendererFile(this.file);
     ipcMain.handle('orbit:stream-host', async (event, action, value) => {
       const record = [...this.sessions.values()].find(r => !r.window.isDestroyed() && r.window.webContents === event.sender);
-      if (!record || event.senderFrame !== event.sender.mainFrame || event.senderFrame.url !== pathToFileURL(this.file).href) throw new Error('Untrusted capture request.');
+      if (!record || event.senderFrame !== event.sender.mainFrame || !await trustedCapture(event.senderFrame.url)) throw new Error('Untrusted capture request.');
       if (action === 'config') return { sourceId: record.sourceId, options: record.options };
       if (action === 'offer') { record.resolve(description(value, 'offer')); return true; }
       if (action === 'error') { record.reject(new Error(String(value).slice(0, 200))); await this.stop(record.id, record.owner); return true; }

@@ -2,6 +2,8 @@
 
 ## 0.6.0
 
+- Accept Windows short-path aliases for the same trusted renderer file, fixing
+  installed-app startup, capture and monitor IPC without relaxing sender checks.
 - Reduce the main sidebar to four everyday pages. Put Audio, Schedules,
   Workflows and Activity in More tools, with quick actions still available.
 - Default to a simpler account table. Keep health, process metrics, inline
