@@ -10,7 +10,7 @@ import { LAUNCH_DEFAULTS, launchConfig, effectiveConfig, privateServer, chooseSe
 import { AccountOperations } from './core/account-operations.mjs';
 import { browserLogin } from './core/browser-login.mjs';
 import { join, dirname } from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 import { readFile, writeFile, stat } from 'node:fs/promises';
 import { spawn } from 'node:child_process';
 import { Store, encryptBackup, decryptBackup } from './core/storage.mjs';
@@ -23,6 +23,7 @@ import { StreamHosts } from './stream-host.mjs';
 import { inputEvent, streamOptions } from './core/playback.mjs';
 import { layout as validateLayout, slotBounds } from './core/layouts.mjs';
 import { globalShortcut } from 'electron';
+import { rendererFile } from './core/renderer-file.mjs';
 import { NativeHost } from './core/native.mjs';
 import { startHost, certificate, fingerprint, parsePeer, pinCertificate, peerRequest } from './core/remote.mjs';
 
@@ -317,7 +318,9 @@ async function action(name, arg = {}, sourceWindow = win) {
     case 'license.purchase': { const result = await license.collectPurchase(); emit(); return result; }
     case 'license.billing': await shell.openExternal(await license.billingPortal()); return true;
     case 'updates.check': return updates.check();
-    case 'updates.install': await updates.install(); return true;
+    case 'updates.start': return updates.start();
+    case 'updates.defer': return updates.defer();
+    case 'updates.install': return updates.start();
     case 'updates.configure': {
       const next = validateSettings(arg, store.state.settings); if (next.updateChannel !== store.state.settings.updateChannel) updates.setChannel(next.updateChannel);
       store.state.settings.autoUpdate = next.autoUpdate; store.state.settings.updateChannel = next.updateChannel; await persist(); emit(); return true;
@@ -522,19 +525,19 @@ else {
     });
     win.webContents.setWebRTCIPHandlingPolicy('default');
     followLocalPlayer(win);
-    const expected = pathToFileURL(ui).href;
-    ipcMain.handle('orbit:action', async (event, name, arg) => { if (![win, popout].some(w => w && !w.isDestroyed() && event.sender === w.webContents) || event.senderFrame !== event.sender.mainFrame || event.senderFrame.url.split('#')[0] !== expected) throw new Error('Untrusted Orbit request.'); try { return { ok: true, value: await action(name, arg, event.sender.getOwnerBrowserWindow()) }; } catch (e) { return { ok: false, error: e.message?.slice(0, 300) || 'The action could not be completed.' }; } });
-    ipcMain.handle('orbit:monitor', async (event, name, arg) => { if (![overlay, popout].some(w => w && !w.isDestroyed() && event.sender === w.webContents) || event.senderFrame !== event.sender.mainFrame || event.senderFrame.url.split('#')[0] !== pathToFileURL(join(here, 'renderer', 'monitor.html')).href) throw new Error('Untrusted monitor request.'); try { if (name === 'state') return { ok: true, value: monitorSnapshot() }; if (name === 'monitor.restore') { win.show(); win.focus(); overlay?.close(); popout?.close(); return { ok: true }; } if (name === 'monitor.corner') { positionMonitor(event.sender.getOwnerBrowserWindow(), arg.corner); return { ok: true }; } throw new Error('Unsupported monitor action.'); } catch (e) { return { ok: false, error: e.message }; } });
+    const trustedUI = rendererFile(ui), trustedMonitor = rendererFile(join(here, 'renderer', 'monitor.html'));
+    ipcMain.handle('orbit:action', async (event, name, arg) => { if (![win, popout].some(w => w && !w.isDestroyed() && event.sender === w.webContents) || event.senderFrame !== event.sender.mainFrame || !await trustedUI(event.senderFrame.url)) throw new Error('Untrusted Orbit request.'); try { return { ok: true, value: await action(name, arg, event.sender.getOwnerBrowserWindow()) }; } catch (e) { return { ok: false, error: e.message?.slice(0, 300) || 'The action could not be completed.' }; } });
+    ipcMain.handle('orbit:monitor', async (event, name, arg) => { if (![overlay, popout].some(w => w && !w.isDestroyed() && event.sender === w.webContents) || event.senderFrame !== event.sender.mainFrame || !await trustedMonitor(event.senderFrame.url)) throw new Error('Untrusted monitor request.'); try { if (name === 'state') return { ok: true, value: monitorSnapshot() }; if (name === 'monitor.restore') { win.show(); win.focus(); overlay?.close(); popout?.close(); return { ok: true }; } if (name === 'monitor.corner') { positionMonitor(event.sender.getOwnerBrowserWindow(), arg.corner); return { ok: true }; } throw new Error('Unsupported monitor action.'); } catch (e) { return { ok: false, error: e.message }; } });
     win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
     win.webContents.on('will-navigate', event => event.preventDefault());
-    win.webContents.session.setPermissionRequestHandler((wc, permission, callback) => callback(permission === 'pointerLock' && [win, popout].some(w => w && !w.isDestroyed() && w.webContents === wc) && wc.getURL().split('#')[0] === expected));
+    win.webContents.session.setPermissionRequestHandler((wc, permission, callback) => { if (permission !== 'pointerLock' || ![win, popout].some(w => w && !w.isDestroyed() && w.webContents === wc)) return callback(false); trustedUI(wc.getURL()).then(callback, () => callback(false)); });
     await win.loadFile(ui);
     win.on('close', event => { if (!localPlay.current && !localPlay.pending) return; event.preventDefault(); localPlay.close().then(() => win?.close()).catch(e => dialog.showErrorBox('Close local play first', e.message)); });
     win.on('closed', () => { releaseControl().catch(() => {}); win = null; app.quit(); });
     if (store.state.settings.hostEnabled) await configureHost().catch(e => { hostError = e.message; });
     license.loadCatalog().then(() => license.refresh()).then(emit).catch(() => {});
     setInterval(() => { if (Date.now() < license.lastCheck - 5000 || Date.now() - license.lastCheck >= license.refreshInterval) license.refresh().then(emit).catch(() => {}); }, 30000).unref();
-    if (store.state.settings.autoUpdate) setTimeout(() => { if (updates.available) updates.check().catch(() => {}); }, 15000).unref();
+    if (store.state.settings.autoUpdate) setTimeout(() => { if (updates.available) updates.check().catch(() => {}); }, 1500).unref();
     setInterval(() => { if (updates.available && store.state.settings.autoUpdate) updates.check().catch(() => {}); }, 6 * 3600000).unref();
     setInterval(() => poll().catch(() => {}), 3000).unref(); poll().catch(() => {});
   } catch (e) { dialog.showErrorBox('Orbit could not start', e.message); app.quit(); }

@@ -11,6 +11,11 @@ try {
   page.on('pageerror', err => errors.push(err.message));
   page.on('console', msg => { if (msg.type() === 'error') errors.push(msg.text()); });
   const url = `http://127.0.0.1:${server.address().port}/`;
+  const navigate = async (target, name) => {
+    if (['Updates', 'Account & License'].includes(name) && !await target.getByRole('button', { name, exact: true }).isVisible()) await target.getByRole('button', { name: 'Settings', exact: true }).click();
+    if (['Audio', 'Schedules', 'Workflows', 'Activity'].includes(name) && !await target.getByRole('button', { name, exact: true }).isVisible()) await target.getByRole('button', { name: 'More tools', exact: true }).click();
+    await target.getByRole('button', { name, exact: true }).click();
+  };
   await page.goto(url);
   await page.getByRole('heading', { name: 'A calmer space for all your accounts.' }).waitFor();
   assert.equal(await page.locator('tr.account-row').count(), 0);
@@ -18,6 +23,10 @@ try {
   assert.equal(await page.locator('tr.account-row').count(), 9);
   await mkdir('docs/screenshots', { recursive: true });
   await page.screenshot({ path: 'docs/screenshots/accounts.png' });
+  assert.equal(await page.locator('[aria-label="Main navigation"] button:visible').count(), 4);
+  assert.equal(await page.locator('.accounttable.simple .advanced-col:visible').count(), 0);
+  assert.equal(await page.locator('#extra-tools').isVisible(), false);
+  await page.getByRole('button', { name: 'Detailed view', exact: true }).click();
   // Account-manager controls, autosave, per-account metadata and commands.
   await page.getByRole('button', { name: 'Launch settings', exact: true }).click();
   await page.getByLabel('Launch delay (seconds)', { exact: true }).fill('0');
@@ -76,7 +85,7 @@ try {
   await page.getByRole('button', { name: 'Close session', exact: true }).click();
   await page.getByRole('button', { name: 'Machines', exact: true }).click();
   assert.equal(await page.locator('.cards .card').count(), 4);
-  await page.getByRole('button', { name: 'Schedules', exact: true }).click();
+  await navigate(page, 'Schedules');
   await page.getByRole('button', { name: 'New schedule' }).click();
   await page.getByRole('textbox', { name: 'Schedule name' }).fill('Test session');
   await page.locator('.checklist input').first().check();
@@ -84,6 +93,11 @@ try {
   await page.getByText('Test session', { exact: true }).waitFor();
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
   await page.getByLabel('Workspace theme').selectOption('light');
+  // Moving between categories and periodic refresh must not discard unsaved fields.
+  await page.getByRole('button', { name: 'Remote', exact: true }).click();
+  await page.locator('[name=streamFps]').selectOption('30');
+  await page.getByRole('button', { name: 'General', exact: true }).click();
+  assert.equal(await page.getByLabel('Workspace theme').inputValue(), 'light');
   await page.getByRole('button', { name: 'Save settings', exact: true }).click();
   assert.equal(await page.locator('body.light').count(), 1);
   await page.getByRole('button', { name: 'Accounts', exact: true }).click();
@@ -93,17 +107,17 @@ try {
   await page.setViewportSize({ width: 390, height: 844 });
   assert.equal(await page.evaluate(() => document.body.scrollWidth > innerWidth), false);
   await page.setViewportSize({ width: 1672, height: 941 });
-  await page.getByRole('button', { name: 'Account & License', exact: true }).click();
+  await navigate(page, 'Account & License');
   await page.getByRole('heading', { name: 'Account & License', exact: true }).waitFor();
   assert.equal(await page.locator('.plan-card').count(), 3);
   await page.getByRole('button', { name: 'Activate a key', exact: true }).click();
   await page.getByRole('textbox', { name: 'Activation key', exact: true }).waitFor();
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
-  await page.getByRole('button', { name: 'Updates', exact: true }).click();
+  await navigate(page, 'Updates');
   await page.getByLabel('Release channel').selectOption('beta');
   await page.getByRole('button', { name: 'Save update preferences', exact: true }).click();
   assert.equal(await page.getByLabel('Release channel').inputValue(), 'beta');
-  await page.getByRole('button', { name: 'Workflows', exact: true }).click();
+  await navigate(page, 'Workflows');
   await page.getByRole('button', { name: 'New workflow', exact: true }).click();
   await page.getByRole('textbox', { name: 'Workflow name' }).fill('Evening accounts');
   await page.locator('#modal .checklist input').first().check();
@@ -121,7 +135,7 @@ try {
   await page.screenshot({ path: 'docs/screenshots/layouts.png' });
   await page.getByRole('button', { name: 'Switch to live layout', exact: true }).click();
   await page.getByRole('button', { name: 'Edit layout', exact: true }).waitFor();
-  await page.getByRole('button', { name: 'Audio', exact: true }).click();
+  await navigate(page, 'Audio');
   await page.locator('#bulk-audio [name=volume]').fill('15');
   await page.locator('#bulk-audio [name=muted]').check();
   await page.getByRole('button', { name: 'Apply audio settings', exact: true }).click();
@@ -129,6 +143,7 @@ try {
   assert.ok(await page.locator('#audio-results p').count() > 0);
   await page.screenshot({ path: 'docs/screenshots/audio.png' });
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  await page.getByRole('button', { name: 'Remote', exact: true }).click();
   await page.locator('[name=streamFps]').selectOption('60');
   await page.locator('[name=streamHeight]').selectOption('1080');
   await page.getByRole('button', { name: 'Save settings', exact: true }).click();
@@ -181,7 +196,7 @@ try {
     } };
   }, keyState);
   await keyPage.goto(url);
-  await keyPage.getByRole('button', { name: 'Account & License', exact: true }).click();
+  await navigate(keyPage, 'Account & License');
   await keyPage.getByRole('button', { name: 'Connect service', exact: true }).click();
   await keyPage.getByLabel('Application name', { exact: true }).fill('Orbit test');
   await keyPage.getByLabel('Owner ID', { exact: true }).fill('abcdefghij');
@@ -201,6 +216,51 @@ try {
   assert.equal(licenseCalls[1].arg.key, 'Keep-This-Case');
   for (const label of ['Manage installations', 'Manage billing']) assert.equal(await keyPage.getByRole('button', { name: label, exact: true }).count(), 0);
   await keyPage.close();
+  // Real startup notification path, including deferral and download progress.
+  const updatePage = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+  updatePage.on('pageerror', err => errors.push(err.message));
+  const updateState = sampleState(); updateState.platform = 'win32';
+  updateState.updates = { version: '0.5.0', nextVersion: '0.6.0', status: 'available', automatic: true, channel: 'stable' };
+  await updatePage.addInitScript(snapshot => {
+    window.updateCalls = []; let notify = () => {};
+    window.changeUpdate = patch => { Object.assign(snapshot.updates, patch); notify(); };
+    window.orbit = { onChange: callback => { notify = callback; }, call: async (name) => {
+      if (name === 'state') return snapshot;
+      window.updateCalls.push(name);
+      if (name === 'updates.defer') return snapshot.updates;
+      if (name === 'updates.start') { window.changeUpdate({ status: 'downloading', progress: 12 }); await new Promise(resolve => { window.finishUpdate = resolve; }); return snapshot.updates; }
+      throw new Error('Unexpected update fixture action: ' + name);
+    } };
+  }, updateState);
+  await updatePage.goto(url);
+  const prompt = updatePage.locator('#update-modal');
+  await prompt.getByRole('heading', { name: 'New update available', exact: true }).waitFor();
+  assert.equal(await updatePage.evaluate(() => getComputedStyle(document.querySelector('#app')).filter), 'blur(5px)');
+  assert.equal(await prompt.locator('button:visible').count(), 2);
+  await updatePage.screenshot({ path: 'docs/screenshots/update-prompt.png' });
+  await prompt.getByRole('button', { name: 'Not now', exact: true }).click();
+  await prompt.waitFor({ state: 'hidden' });
+  await updatePage.evaluate(() => window.changeUpdate({ progress: 0 }));
+  assert.equal(await prompt.isVisible(), false); assert.deepEqual(await updatePage.evaluate(() => window.updateCalls), ['updates.defer']);
+  await updatePage.getByRole('button', { name: 'Update available', exact: true }).click();
+  await prompt.getByRole('button', { name: 'Update', exact: true }).click();
+  await prompt.getByRole('heading', { name: 'Downloading update…', exact: true }).waitFor();
+  await updatePage.evaluate(() => window.changeUpdate({ progress: 44 }));
+  await prompt.getByText('44%', { exact: true }).waitFor();
+  await prompt.getByRole('button', { name: 'Not now', exact: true }).click();
+  await prompt.waitFor({ state: 'hidden' });
+  await updatePage.evaluate(() => { window.changeUpdate({ status: 'ready', progress: 100 }); window.finishUpdate(); });
+  assert.equal(await prompt.isVisible(), false);
+  await updatePage.getByRole('button', { name: 'Update available', exact: true }).click();
+  await prompt.getByRole('button', { name: 'Update', exact: true }).waitFor();
+  await updatePage.keyboard.press('Escape'); await prompt.waitFor({ state: 'hidden' });
+  // An arriving update must wait while account sign-in or another task dialog is open.
+  await updatePage.getByRole('button', { name: 'Add accounts', exact: true }).click();
+  await updatePage.evaluate(() => window.changeUpdate({ status: 'available', nextVersion: '0.6.1' }));
+  assert.equal(await prompt.isVisible(), false);
+  await updatePage.getByRole('button', { name: 'Close dialog', exact: true }).click();
+  await prompt.waitFor({ state: 'visible' });
+  await updatePage.close();
   assert.deepEqual(errors, []);
-  console.log('UI smoke checks passed: empty state, demo isolation, table/search/selection, groups, live view, remote dialog, machines, schedules, themes, and responsive layout.');
+  console.log('UI smoke checks passed: simple/detailed workspace, hidden tools, settings preservation, account flows, native play, themes, responsive layout, startup update prompt, blur, progress and deferral.');
 } finally { await browser.close(); server.close(); }
