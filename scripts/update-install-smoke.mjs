@@ -24,8 +24,20 @@ function processes() {
   if (!result) return []; const value = JSON.parse(result);
   return (Array.isArray(value) ? value : [value]).filter(p => { try { return realpathSync(p.Path).toLowerCase() === realpathSync(exe).toLowerCase(); } catch { return false; } });
 }
+function desktopShell() {
+  return execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', '@(Get-Process explorer -ErrorAction SilentlyContinue | Select-Object Id, SessionId) | ConvertTo-Json -Compress'], { encoding: 'utf8' }).trim();
+}
 let instance;
 try {
+  // NSIS restarts as the desktop user through Explorer. GitHub's runner can
+  // have a usable window station without a shell, unlike a normal Windows PC.
+  console.log('Desktop shell before installer:', desktopShell() || 'none');
+  if (!desktopShell()) {
+    const shell = spawn('explorer.exe', [], { detached: true, stdio: 'ignore' }); shell.unref();
+    const shellDeadline = Date.now() + 10000;
+    while (!desktopShell() && Date.now() < shellDeadline) await new Promise(r => setTimeout(r, 500));
+  }
+  console.log('Desktop shell for installer:', desktopShell() || 'none');
   console.log('Installing the Windows fixture into a temporary folder.');
   await runInstaller(['/S', '/currentuser', `/D=${installDir}`]);
   console.log('Opening the installed application.');
@@ -42,6 +54,7 @@ try {
   await runInstaller(['--updated', '--force-run']);
   const deadline = Date.now() + 20000; let reopened;
   do { reopened = processes().some(p => Number(p.MainWindowHandle) !== 0); if (!reopened) await new Promise(r => setTimeout(r, 500)); } while (!reopened && Date.now() < deadline);
+  console.log('Installed processes after upgrade:', JSON.stringify(processes()));
   assert.ok(reopened, 'The update must reopen Orbit from the original installation folder.');
   const saved = JSON.parse(await readFile(join(userData, 'orbit-data', 'workspace.json'), 'utf8'));
   assert.ok(saved.groups.includes('Upgrade preservation fixture'), 'Updating must preserve the workspace.');
