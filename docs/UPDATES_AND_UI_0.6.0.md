@@ -30,7 +30,9 @@ automatic restart request. Failed downloads have a retry action.
 The NSIS installer also switches to silent mode when invoked with --updated by
 older Orbit clients. This suppresses their setup wizard for this upgrade; their
 older in-app update screen remains in use until the new app is installed.
-Normal first-time setup still offers a folder picker. Windows may still request
+Update restarts target the installed executable directly, so a stale Start-menu
+shortcut cannot redirect or prevent reopening. Normal first-time setup still
+offers a folder picker. Windows may still request
 administrator permission when updating a per-machine installation.
 Portable and source builds continue to use manual updates.
 
