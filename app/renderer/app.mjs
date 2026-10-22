@@ -68,7 +68,7 @@ async function call(name, arg = {}) {
 async function refresh(force = false) {
   if (refreshBusy || !bridge && !demo || document.hidden && !force) return;
   refreshBusy = true;
-  try { if (!demo) state = await call('state'); updatePrompt.sync(demo ? null : state.updates); if (theatre?.localPlaying && !theatre.busy && state.localPlayId !== theatre.id) { theatre.localPlaying = false; const button = modal.querySelector('#control-button'); if (button) { button.innerHTML = icon('mouse') + '<span>Play here</span>'; button.classList.remove('danger'); } toast('Local play ended.'); } if (!layoutStudio.drag && (force || !['Layouts', 'Audio'].includes(page)) && state && (force || !modal.open && !['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement.tagName))) render(); }
+  try { if (!demo) state = await call('state'); updatePrompt.sync(demo ? null : state.updates); if (theatre?.localPlaying && !theatre.busy && state.localPlayId !== theatre.id) { theatre.localPlaying = false; const button = modal.querySelector('#control-button'); if (button) { button.innerHTML = icon('mouse') + '<span>Play here</span>'; button.classList.remove('danger'); } toast('Local play ended.'); } if (!layoutStudio.drag && (force || !['Layouts', 'Audio'].includes(page)) && state && (force || !modal.open && !document.querySelector('#settings-form[data-dirty], #update-settings[data-dirty]') && !['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement.tagName))) render(); }
   catch (err) { toast(err.message, true); } finally { refreshBusy = false; }
 }
 function filtered() { const q = query.toLowerCase(); return state.accounts.filter(a => (!group || a.group === group) && (!q || [a.username, a.displayName, a.alias, a.notes, game(a)].some(v => v?.toLowerCase().includes(q))) && (!statusFilter || (statusFilter === 'attention' ? attentionStates.includes(a.status) : a.status === statusFilter)) && (!machineFilter || a.machineId === machineFilter)); }
@@ -512,9 +512,9 @@ document.addEventListener('click', async ev => {
   if (!ev.target.closest('.popup')) document.querySelector('.popup')?.remove();
   const row = ev.target.closest('[data-account]'); if (row && !ev.target.closest('input,select,button')) { activeId = row.dataset.account; details = true; frameError = ''; streamWanted = true; render(); updateFrames(); }
 });
-document.addEventListener('input', ev => { if (ev.target.closest('#settings-form')) ev.target.closest('form').dataset.dirty = 'true'; if (ev.target.id !== 'search') return; query = ev.target.value; pageNumber = 1; const at = ev.target.selectionStart; render(); const input = document.querySelector('#search'); input.focus(); input.setSelectionRange(at, at); });
+document.addEventListener('input', ev => { if (ev.target.closest('#settings-form, #update-settings')) ev.target.closest('form').dataset.dirty = 'true'; if (ev.target.id !== 'search') return; query = ev.target.value; pageNumber = 1; const at = ev.target.selectionStart; render(); const input = document.querySelector('#search'); input.focus(); input.setSelectionRange(at, at); });
 document.addEventListener('change', async ev => {
-  if (ev.target.closest('#settings-form')) ev.target.closest('form').dataset.dirty = 'true';
+  if (ev.target.closest('#settings-form, #update-settings')) ev.target.closest('form').dataset.dirty = 'true';
   if (ev.target.dataset.inline) { try { await call('accounts.update', { id: ev.target.dataset.id, [ev.target.dataset.inline]: ev.target.value }); await refresh(true); } catch (err) { toast(err.message, true); await refresh(true); } return; }
   if (ev.target.dataset.select) { ev.target.checked ? selected.add(ev.target.dataset.select) : selected.delete(ev.target.dataset.select); render(); }
   if (ev.target.id === 'select-page') { const list = filtered().slice((pageNumber - 1) * pageSize, pageNumber * pageSize); for (const a of list) ev.target.checked ? selected.add(a.id) : selected.delete(a.id); render(); }
@@ -522,7 +522,7 @@ document.addEventListener('change', async ev => {
   if (ev.target.id === 'machine-filter') { machineFilter = ev.target.value; pageNumber = 1; render(); }
 });
 document.addEventListener('submit', async ev => {
-  if (ev.target.id === 'update-settings') { ev.preventDefault(); const fd = new FormData(ev.target); try { await call('updates.configure', { autoUpdate: fd.has('autoUpdate'), updateChannel: fd.get('updateChannel') }); toast('Update preferences saved.'); await refresh(true); } catch (err) { toast(err.message, true); } return; }
+  if (ev.target.id === 'update-settings') { ev.preventDefault(); const fd = new FormData(ev.target); try { await call('updates.configure', { autoUpdate: fd.has('autoUpdate'), updateChannel: fd.get('updateChannel') }); delete ev.target.dataset.dirty; toast('Update preferences saved.'); await refresh(true); } catch (err) { toast(err.message, true); } return; }
   if (ev.target.id !== 'settings-form') return; ev.preventDefault();
   const fd = new FormData(ev.target); const b = ev.target.querySelector('[type=submit]'); b.disabled = true;
   try { await call('settings.save', { launchDelayMs: Number(fd.get('launchDelay')) * 1000, maxConcurrent: Number(fd.get('maxConcurrent')), launcherPath: fd.get('launcherPath'), hostEnabled: fd.has('hostEnabled'), hostBind: fd.get('hostBind'), hostPort: Number(fd.get('hostPort')), allowRemoteControl: fd.has('allowRemoteControl'), previewFps: Number(fd.get('previewFps')), streamFps: Number(fd.get('streamFps')), streamHeight: Number(fd.get('streamHeight')), streamBitrate: Number(fd.get('streamBitrate')), streamAdaptive: fd.has('streamAdaptive'), multiSession: fd.has('multiSession'), desktopAlerts: fd.has('desktopAlerts'), theme: fd.get('theme') }); settingsDraft = null; delete ev.target.dataset.dirty; toast('Settings saved.'); await refresh(true); } catch (err) { toast(err.message, true); } finally { if (b.isConnected) b.disabled = false; }

@@ -115,7 +115,12 @@ try {
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   await navigate(page, 'Updates');
   await page.getByLabel('Release channel').selectOption('beta');
+  // Blur the field and let the periodic refresh run before saving.
+  await page.getByRole('heading', { name: 'Updates', exact: true }).click();
+  await page.waitForTimeout(5200);
+  assert.equal(await page.getByLabel('Release channel').inputValue(), 'beta');
   await page.getByRole('button', { name: 'Save update preferences', exact: true }).click();
+  await page.getByText('Update preferences saved.', { exact: true }).waitFor();
   assert.equal(await page.getByLabel('Release channel').inputValue(), 'beta');
   await navigate(page, 'Workflows');
   await page.getByRole('button', { name: 'New workflow', exact: true }).click();
