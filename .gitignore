@@ -13,3 +13,9 @@ docs/screenshots/*.png
 !deployment/example.env
 *.pem
 *.sqlite*
+
+# Native C# development
+**/bin/
+**/obj/
+native/artifacts/
+.vs/

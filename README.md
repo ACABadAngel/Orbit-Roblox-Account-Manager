@@ -6,6 +6,13 @@ and a session inspector.
 
 ![Orbit account workspace](docs/screenshots/accounts.webp)
 
+## Native C# rewrite (development preview)
+
+A native .NET 10/WPF workspace with an integrated Roblox Player launcher is being
+developed under [`native/`](native/README.md). It has separate protected data and
+Windows CI artifacts. It is not a complete replacement for the stable application;
+the [feature-parity table](native/README.md#feature-parity) lists pending ports.
+
 ## Run it
 
 Requirements: **Windows 10/11**, Node.js **22 or newer**, and an installed Roblox
