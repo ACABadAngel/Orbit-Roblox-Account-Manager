@@ -21,5 +21,9 @@ public sealed class FormDialog : Window
     { fields.Children.Add(new TextBlock { Text = label }); var box = new PasswordBox(); fields.Children.Add(box); return box; }
     public ComboBox Choose<T>(string label, IEnumerable<T> items, T selected)
     { fields.Children.Add(new TextBlock { Text = label }); var combo = new ComboBox { ItemsSource = items, SelectedItem = selected }; fields.Children.Add(combo); return combo; }
+    public CheckBox Toggle(string label,bool value)
+    {var box=new CheckBox{Content=label,IsChecked=value};fields.Children.Add(box);return box;}
+    public ListBox Multiple<T>(string label,IEnumerable<T> items,IEnumerable<string> selected,Func<T,string> id,string display)
+    {fields.Children.Add(new TextBlock{Text=label});var array=items.ToArray();var box=new ListBox{ItemsSource=array,DisplayMemberPath=display,SelectionMode=SelectionMode.Multiple,Height=140,Background=System.Windows.Media.Brushes.Transparent,Foreground=System.Windows.Media.Brushes.White,Margin=new Thickness(0,6,0,14)};foreach(var item in array)if(selected.Contains(id(item)))box.SelectedItems.Add(item);fields.Children.Add(box);return box;}
     public void ClearSecrets() { foreach (var child in fields.Children) if (child is PasswordBox p) p.Clear(); }
 }

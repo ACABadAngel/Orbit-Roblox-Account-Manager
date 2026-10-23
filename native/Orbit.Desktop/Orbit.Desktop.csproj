@@ -10,8 +10,10 @@
     <AssemblyName>Orbit.Native</AssemblyName>
     <ApplicationIcon>../../build/icon.ico</ApplicationIcon>
   </PropertyGroup>
+  <ItemGroup><FrameworkReference Include="Microsoft.AspNetCore.App" /></ItemGroup>
   <ItemGroup><ProjectReference Include="../Orbit.Core/Orbit.Core.csproj" /></ItemGroup>
   <ItemGroup><Using Include="System" /><Using Include="System.IO" /><Using Include="System.Linq" /><Using Include="System.Collections.Generic" /><Using Include="System.Threading" /><Using Include="System.Threading.Tasks" /></ItemGroup>
+  <ItemGroup><Content Include="../../app/config/services.json" Link="services.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" /></ItemGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4258.31" />
   </ItemGroup>

@@ -31,13 +31,14 @@ public partial class MainWindow : Window
     private string search = "";
     private readonly Dictionary<string, Image> liveImages = [];
     private readonly Dictionary<int, string> processOwners = [];
-    public MainWindow(WorkspaceStore store, HttpClient http)
+    public MainWindow(WorkspaceStore store, HttpClient http, bool smokeMode = false)
     {
-        InitializeComponent(); this.store = store; this.http = http; api = new(http);
+        InitializeComponent(); this.store = store; this.http = http; api = new(http); licensing = new(http,store);
+        if(!smokeMode) Loaded += async (_,_) => await InitializeFeatures();
         installer = new(http, Path.Combine(store.DirectoryPath, "Roblox"), PublisherVerifier.Roblox);
         accounts = new(store.State.Accounts); ShowAccounts();
         refresh.Tick += Refresh; refresh.Start(); Closing += OnClosing;
-        InputBindings.Add(new KeyBinding(new ActionCommand(() => { ShowAccounts(); accountGrid?.Focus(); }), Key.K, ModifierKeys.Control));
+        InputBindings.Add(new KeyBinding(new ActionCommand(CommandPalette), Key.K, ModifierKeys.Control));
     }
     private void Navigate(string title, string subtitle, UIElement content)
     { liveImages.Clear(); PageTitle.Text = title; PageSubtitle.Text = subtitle; Page.Content = content; }
@@ -48,41 +49,45 @@ public partial class MainWindow : Window
     { var panel = new WrapPanel { Margin = new(0,0,0,12) }; foreach (var b in buttons) panel.Children.Add(b); return panel; }
     private static ScrollViewer Scroll(UIElement content) => new() { Content = content, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
     private void Notify(string value) => Status.Text = value;
+    private async Task ExecuteOperation(Func<CancellationToken,Task> action,CancellationToken caller=default)
+    {
+        if(operation is not null)throw new InvalidOperationException("Wait for the current operation or cancel it.");
+        operation=CancellationTokenSource.CreateLinkedTokenSource(caller,lifetime.Token);CancelButton.Visibility=Visibility.Visible;
+        try{await action(operation.Token);}finally{operation.Dispose();operation=null;CancelButton.Visibility=Visibility.Collapsed;}
+    }
     private async Task Run(Func<CancellationToken, Task> action)
     {
-        if (operation is not null) { Notify("Wait for the current operation or cancel it."); return; }
-        operation = new(); CancelButton.Visibility = Visibility.Visible;
-        try { await action(operation.Token); }
-        catch (OperationCanceledException) { Notify("Operation cancelled. Any completed installation remains available."); }
-        catch (Exception e) { Notify(e.Message); MessageBox.Show(this, e.Message, "Orbit", MessageBoxButton.OK, MessageBoxImage.Information); }
-        finally { operation.Dispose(); operation = null; CancelButton.Visibility = Visibility.Collapsed; }
+        try { await ExecuteOperation(action); }
+        catch (OperationCanceledException) { Notify("Operation cancelled. Completed work was kept."); }
+        catch (Exception e) { Notify(e.Message); MessageBox.Show(this,e.Message,"Orbit",MessageBoxButton.OK,MessageBoxImage.Information); }
     }
     private async Task SaveAsync(string message)
     { store.Log(message); await store.SaveAsync(); Notify(message); }
     private IReadOnlyList<Account> Selected() => accountGrid?.SelectedItems.Cast<Account>().ToArray() ?? [];
     internal void SmokeViews(string output)
     {
-        foreach (var view in new (string, Action)[] { ("accounts", ShowAccounts), ("launcher", ShowLauncher), ("settings", () => SettingsClick(this, new())), ("layouts", () => LayoutsClick(this, new())), ("audio", () => AudioClick(this, new())), ("migration", () => MigrationClick(this, new())) })
+        foreach (var view in new (string, Action)[] { ("accounts", ShowAccounts), ("launcher", ShowLauncher), ("settings", () => SettingsClick(this, new())), ("layouts", () => LayoutsClick(this, new())), ("audio", () => AudioClick(this, new())), ("migration", () => MigrationClick(this, new())), ("machines",()=>MachinesClick(this,new())), ("automation",ShowAutomation), ("licence",LicensePage) })
         { view.Item2(); UpdateLayout(); var bitmap = new RenderTargetBitmap((int)ActualWidth, (int)ActualHeight, 96, 96, PixelFormats.Pbgra32); bitmap.Render(this); var encoder = new PngBitmapEncoder(); encoder.Frames.Add(BitmapFrame.Create(bitmap)); using var file = File.Create(Path.Combine(output, view.Item1 + ".png")); encoder.Save(file); }
         refresh.Stop(); closing = true;
     }
     private void AccountsClick(object sender, RoutedEventArgs e) => ShowAccounts();
     private void ShowAccounts()
     {
-        var panel = new DockPanel();
-        var top = new StackPanel();
-        var filter = new TextBox { Text = search, ToolTip = "Search accounts, aliases and groups" };
-        filter.SetValue(System.Windows.Automation.AutomationProperties.NameProperty, "Search accounts");
-        filter.TextChanged += (_, _) => { search = filter.Text; CollectionViewSource.GetDefaultView(accounts).Refresh(); };
-        top.Children.Add(Actions(Button("Sign in", SignIn), Button("Paste session", AddAccount), Button("Import file", ImportFile), Button("Launch selected", () => _ = Run(LaunchSelected)), Button("Stop selected", StopSelected), Button("Edit", EditAccount), Button("Attach window", AttachWindow), Button("Check health", () => _ = Run(CheckHealth)), Button("Remove", RemoveAccounts)));
-        top.Children.Add(filter); DockPanel.SetDock(top, Dock.Top); panel.Children.Add(top);
-        var view = CollectionViewSource.GetDefaultView(accounts);
-        view.Filter = a => a is Account account && (account.Username.Contains(search, StringComparison.OrdinalIgnoreCase) || account.Alias.Contains(search, StringComparison.OrdinalIgnoreCase) || account.Group.Contains(search, StringComparison.OrdinalIgnoreCase));
-        accountGrid = new DataGrid { ItemsSource = view };
-        foreach (var c in new[] { ("Account", "Label", 2d), ("Username", "Username", 1.4), ("Status", "Status", 1.2), ("Group", "Group", 1d) }) accountGrid.Columns.Add(new DataGridTextColumn { Header = c.Item1, Binding = new Binding(c.Item2), Width = new DataGridLength(c.Item3, DataGridLengthUnitType.Star) });
-        accountGrid.MouseDoubleClick += (_, _) => { if (Selected().FirstOrDefault() is { } a) { try { GameWindows.Focus(a); } catch (InvalidOperationException e) { Notify(e.Message); } } };
-        panel.Children.Add(accountGrid);
-        Navigate("Accounts", "Select accounts to launch together. Double-click a running account to open its window.", panel);
+        var panel=new DockPanel();var top=new StackPanel();var more=new Button{Content="More actions  ···"};
+        var menu=new ContextMenu();foreach(var item in new (string,Action)[]{("Paste session",AddAccount),("Import session file",ImportFile),("Check selected accounts",()=>_=Run(CheckHealth)),("Attach Roblox window",AttachWindow),("Select all",()=>accountGrid?.SelectAll()),("Save selected workflow",()=>EditAutomation(null,false)),("Remove selected",RemoveAccounts),("Stop all",StopAll)}){var command=new MenuItem{Header=item.Item1};command.Click+=(_,_)=>item.Item2();menu.Items.Add(command);}more.Click+=(_,_)=>{menu.PlacementTarget=more;menu.IsOpen=true;};
+        var launch=Button("Launch selected",()=>_=Run(LaunchSelected));launch.Background=new SolidColorBrush(Color.FromRgb(105,242,188));launch.Foreground=new SolidColorBrush(Color.FromRgb(7,11,12));
+        top.Children.Add(Actions(Button("Add account",SignIn),launch,Button("Stop selected",StopSelected),more));
+        var filters=new Grid();filters.ColumnDefinitions.Add(new(){Width=new GridLength(1,GridUnitType.Star)});filters.ColumnDefinitions.Add(new(){Width=new GridLength(170)});filters.ColumnDefinitions.Add(new(){Width=new GridLength(160)});
+        var filter=new TextBox{Text=search,ToolTip="Search accounts, aliases and groups",Margin=new(0,0,12,14)};filter.SetValue(System.Windows.Automation.AutomationProperties.NameProperty,"Search accounts");filters.Children.Add(filter);
+        var groups=new ComboBox{ItemsSource=new[]{"All groups"}.Concat(store.State.Groups).ToArray(),SelectedItem=groupFilter,Margin=new(0,0,12,14)};Grid.SetColumn(groups,1);filters.Children.Add(groups);
+        var states=new ComboBox{ItemsSource=new[]{"All statuses","Running","Idle","Disconnected","Launch paused","Recovery scheduled","Sign-in required"},SelectedItem=statusFilter,Margin=new(0,0,0,14)};Grid.SetColumn(states,2);filters.Children.Add(states);top.Children.Add(filters);DockPanel.SetDock(top,Dock.Top);panel.Children.Add(top);
+        var view=CollectionViewSource.GetDefaultView(accounts);view.Filter=value=>value is Account a&&(a.Username.Contains(search,StringComparison.OrdinalIgnoreCase)||a.Alias.Contains(search,StringComparison.OrdinalIgnoreCase)||a.Group.Contains(search,StringComparison.OrdinalIgnoreCase))&&(groupFilter=="All groups"||a.Group==groupFilter)&&(statusFilter=="All statuses"||a.Status==statusFilter);
+        filter.TextChanged+=(_,_)=>{search=filter.Text;view.Refresh();};groups.SelectionChanged+=(_,_)=>{groupFilter=groups.SelectedItem as string??"All groups";view.Refresh();};states.SelectionChanged+=(_,_)=>{statusFilter=states.SelectedItem as string??"All statuses";view.Refresh();};
+        var body=new Grid();body.ColumnDefinitions.Add(new(){Width=new GridLength(1,GridUnitType.Star)});body.ColumnDefinitions.Add(new(){Width=new GridLength(260)});accountGrid=new DataGrid{ItemsSource=view};
+        foreach(var c in new[]{("Account","Label",2d),("Status","Status",1.5),("Group","Group",1d)})accountGrid.Columns.Add(new DataGridTextColumn{Header=c.Item1,Binding=new Binding(c.Item2),Width=new DataGridLength(c.Item3,DataGridLengthUnitType.Star)});body.Children.Add(accountGrid);
+        var detail=new StackPanel{Margin=new(20,10,0,0)};detail.Children.Add(Text("Your session",22));detail.Children.Add(Text("Select an account for its game profile, window and controls.",14,true));var inspector=new ScrollViewer{Content=detail,VerticalScrollBarVisibility=ScrollBarVisibility.Auto};Grid.SetColumn(inspector,1);body.Children.Add(inspector);
+        accountGrid.SelectionChanged+=(_,_)=>{detail.Children.Clear();if(accountGrid.SelectedItem is not Account a)return;detail.Children.Add(Text(a.Label,22));detail.Children.Add(Text("@"+a.Username,13,true));var status=new TextBlock{Margin=new(0,8,0,12),TextWrapping=TextWrapping.Wrap};status.SetBinding(TextBlock.TextProperty,new Binding("Status"){Source=a});detail.Children.Add(status);var metrics=new TextBlock{FontSize=11,TextWrapping=TextWrapping.Wrap,Margin=new(0,0,0,14)};metrics.SetBinding(TextBlock.TextProperty,new Binding("Resources"){Source=a});detail.Children.Add(metrics);detail.Children.Add(Text("Game profile",12,true));var profile=new ComboBox{ItemsSource=store.State.Profiles,SelectedItem=Profile(a)};detail.Children.Add(profile);detail.Children.Add(Button("Use this profile",()=>_=Run(async _=>{a.ProfileId=((LaunchProfile)profile.SelectedItem).Id;await SaveAsync("Account profile saved. Group overrides still apply.");})));detail.Children.Add(Button("Play inside Orbit",()=>OpenLocalPlay(a)));detail.Children.Add(Button("Open separate window",()=>_=Run(_=>{GameWindows.Focus(a);return Task.CompletedTask;})));detail.Children.Add(Button("Account settings",EditAccount));detail.Children.Add(Button("Screenshot",()=>SaveScreenshot(a)));var error=new TextBlock{TextWrapping=TextWrapping.Wrap,Foreground=new SolidColorBrush(Color.FromRgb(157,168,165)),Margin=new(0,12,0,0)};error.SetBinding(TextBlock.TextProperty,new Binding("Error"){Source=a});detail.Children.Add(error);};
+        accountGrid.MouseDoubleClick+=(_,_)=>{if(accountGrid.SelectedItem is Account a)OpenLocalPlay(a);};panel.Children.Add(body);Navigate("Accounts","Every account, profile and game window in one workspace. Ctrl/Shift selects multiple accounts.",panel);
     }
     private void SignIn()
     {
@@ -149,9 +154,10 @@ public partial class MainWindow : Window
         }
         await SaveAsync("Account health check finished.");
     }
-    private async Task LaunchSelected(CancellationToken ct)
+    private Task LaunchSelected(CancellationToken ct) => LaunchAccounts(Selected(),ct);
+    private async Task LaunchAccounts(IReadOnlyList<Account> selection,CancellationToken ct,bool recovery=false)
     {
-        var selected = Selected().ToArray(); if (selected.Length == 0) throw new InvalidOperationException("Select accounts to launch.");
+        var selected = selection.ToArray(); if (selected.Length == 0) throw new InvalidOperationException("Select accounts to launch.");
         foreach (var a in selected) LaunchUri.ValidateProfile(Profile(a));
         if (selected.Any(a => Profile(a).PlaceId.Length == 0)) throw new InvalidOperationException("Set a place ID in Settings → Launch profiles first.");
         if (store.State.Launcher.MultiSession && !multiEnabled)
@@ -163,13 +169,16 @@ public partial class MainWindow : Window
         foreach (var a in selected)
         {
             ct.ThrowIfCancellationRequested(); if (GameWindows.Owned(a)) continue;
-            var p = Profile(a); a.Status = "Launching"; a.Error = "";
+            var p = Profile(a); a.StopRequested=false; a.RecoverAt=null; if(!recovery)a.RecoveryAttempts.Clear(); a.Status = "Launching"; a.Error = "";
             try
             {
                 await ClientCustomization.ApplyFlagsAsync(client, store.State.Launcher.FastFlags, p, ct);
                 using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct); timeout.CancelAfter(TimeSpan.FromSeconds(20));
                 var ticket = await api.TicketAsync(store.Session(a.Id), p.PlaceId, timeout.Token);
-                var launchUri = LaunchUri.Build(ticket, p);
+                var server=PrivateServers.Choose(store.State,a,store.State.OptionsFor(a),serverCursors);
+                var target=server is null?null:await PrivateServers.Resolve(http,server,store.Session(a.Id),timeout.Token);
+                if(server is not null && server.PlaceId!=p.PlaceId)throw new InvalidOperationException("Private server belongs to a different profile place.");
+                var launchUri = LaunchUri.Build(ticket, p,target:target);
                 ct.ThrowIfCancellationRequested();
                 var before = GameWindows.List().Select(w => w.Handle).ToHashSet();
                 var start = new ProcessStartInfo(client.Executable) { UseShellExecute = false, WorkingDirectory = client.Directory };
@@ -182,17 +191,17 @@ public partial class MainWindow : Window
                     await Task.Delay(500, ct);
                     var newWindows = GameWindows.List().Where(w => !before.Contains(w.Handle) && !processOwners.ContainsKey(w.Pid)).ToArray();
                     if (newWindows.Length > 1) break;
-                    if (newWindows.Length == 1) { GameWindows.Attach(a, newWindows[0]); processOwners[a.ProcessId] = a.Id; ApplyAudio(a); attached = true; break; }
+                    if (newWindows.Length == 1) { GameWindows.Attach(a, newWindows[0]); processOwners[a.ProcessId] = a.Id; ApplyAudio(a); ApplyAutomaticLayout(a); attached = true; break; }
                 }
                 if (!attached) { a.Status = "Attach window"; Notify("Window matching was uncertain. Use Attach window and verify the account."); break; }
                 await SaveAsync($"Launched {a.Label}.");
-                await Task.Delay(TimeSpan.FromSeconds(store.State.Launcher.LaunchDelaySeconds), ct);
+                await Task.Delay(TimeSpan.FromSeconds(store.State.OptionsFor(a).DelaySeconds), ct);
             }
             catch (OperationCanceledException) { if (a.Status == "Launching") a.Status = "Idle"; throw; }
-            catch (Exception e) { a.Error = e.Message; a.Status = "Launch paused"; throw; }
+            catch (Exception e) { a.Error = e.Message; a.Status = "Launch paused"; if(recovery && e is not RobloxException)ScheduleRecovery(a); throw; }
         }
     }
-    private LaunchProfile Profile(Account a) => store.State.Profiles.FirstOrDefault(p => p.Id == a.ProfileId) ?? store.State.Profiles[0];
+    private LaunchProfile Profile(Account a) => store.State.Profiles.FirstOrDefault(p => p.Id == (store.State.OptionsFor(a).ProfileId.Length>0?store.State.OptionsFor(a).ProfileId:a.ProfileId)) ?? store.State.Profiles[0];
     private async Task<InstalledClient> EnsureClient(CancellationToken ct, bool repair = false, bool forceUpdate = false)
     {
         if (repair && GameWindows.List().Count > 0) throw new InvalidOperationException("Close all Roblox clients before repairing.");
@@ -202,16 +211,16 @@ public partial class MainWindow : Window
     }
     private void StopSelected()
     {
-        var selected = Selected(); _ = Run(async _ => { foreach (var a in selected) { GameWindows.Stop(a); processOwners.Remove(a.ProcessId); } await SaveAsync("Selected sessions stopped."); });
+        var selected = Selected(); operation?.Cancel(); foreach(var a in selected){a.StopRequested=true;a.RecoverAt=null;GameWindows.Stop(a);} _ = Run(async _ => { foreach (var a in selected) { GameWindows.Stop(a); processOwners.Remove(a.ProcessId); } await SaveAsync("Selected sessions stopped."); });
     }
     private void EditAccount()
     {
         if (Selected().FirstOrDefault() is not { } a) { Notify("Select an account first."); return; }
-        var dialog = new FormDialog(this, "Account settings"); var alias = dialog.Text("Alias", a.Alias); var group = dialog.Text("Group", a.Group); var notes = dialog.Text("Notes", a.Notes, true); var profile = dialog.Choose("Launch profile", store.State.Profiles, Profile(a));
+        var dialog = new FormDialog(this, "Account settings"); var alias = dialog.Text("Alias", a.Alias); var group = dialog.Text("Group", a.Group); var notes = dialog.Text("Notes", a.Notes, true); var profile = dialog.Choose("Launch profile", store.State.Profiles, Profile(a)); var server=dialog.Choose("Assigned private server",new[]{new PrivateServer{Id="",Name="None"}}.Concat(store.State.PrivateServers).ToArray(),store.State.PrivateServers.FirstOrDefault(s=>s.Id==a.ServerId)??new PrivateServer{Id="",Name="None"}); var recovery=dialog.Toggle("Allow automatic relaunch for this account",a.AutoRelaunch);
         if (dialog.ShowDialog() == true) _ = Run(async _ =>
         {
             if (alias.Text.Length > 80 || group.Text.Length is < 1 or > 80 || notes.Text.Length > 4000) throw new ArgumentException("Account fields are too long or group is empty.");
-            a.Alias = alias.Text.Trim(); a.Group = group.Text.Trim(); a.Notes = notes.Text; a.ProfileId = ((LaunchProfile)profile.SelectedItem).Id;
+            a.Alias = alias.Text.Trim(); a.Group = group.Text.Trim(); a.Notes = notes.Text; a.ProfileId = ((LaunchProfile)profile.SelectedItem).Id; a.ServerId=(server.SelectedItem as PrivateServer)?.Id??""; a.AutoRelaunch=recovery.IsChecked==true;
             if (!store.State.Groups.Contains(a.Group)) store.State.Groups.Add(a.Group);
             await SaveAsync("Account settings saved."); ShowAccounts();
         });
@@ -270,7 +279,7 @@ public partial class MainWindow : Window
         var json = dialog.Text("JSON object", JsonSerializer.Serialize(store.State.Launcher.FastFlags, WorkspaceStore.Json), true);
         if (dialog.ShowDialog() == true) _ = Run(async _ => { var parsed = ClientCustomization.ParseFlags(json.Text); store.State.Launcher.FastFlags = parsed; await SaveAsync("FastFlags saved for the next launch."); });
     }
-    private void SettingsClick(object sender, RoutedEventArgs e)
+    private void BasicSettingsClick(object sender, RoutedEventArgs e)
     {
         var content = new StackPanel { MaxWidth = 740, HorizontalAlignment = HorizontalAlignment.Left };
         content.Children.Add(Text("Launch profiles", 24));
@@ -286,7 +295,7 @@ public partial class MainWindow : Window
         content.Children.Add(Text("Your native workspace uses a separate Windows-protected data file. Existing Electron accounts and settings are not changed. Add accounts here explicitly; the old vault is not silently imported.", 14, true));
         content.Children.Add(Button("Open native data folder", () => OpenFolder(store.DirectoryPath)));
         content.Children.Add(Text("Updates and licences", 21));
-        content.Children.Add(Text("This development build does not replace your stable Orbit installation. Native automatic updates, paid licences, remote play and legacy backup migration are still pending parity validation. Use the stable app for those features.", 14, true));
+        content.Children.Add(Text("Account & Licence connects your publisher service. Backups & migration imports an encrypted backup from the previous app. App updates use the separate native release feed.", 14, true));
         Navigate("Settings", "Small controls for your accounts and launcher.", Scroll(content));
     }
     private void EditProfile(LaunchProfile? existing)
@@ -301,7 +310,7 @@ public partial class MainWindow : Window
             await SaveAsync("Launch profile saved."); SettingsClick(this, new());
         });
     }
-    private void LayoutsClick(object sender, RoutedEventArgs e)
+    private void SimpleLayoutsClick(object sender, RoutedEventArgs e)
     {
         var content = new StackPanel(); var monitors = Screen.AllScreens;
         var monitor = new ComboBox { ItemsSource = monitors.Select((s,i) => new MonitorOption(s, i)).ToArray(), SelectedIndex = 0, HorizontalAlignment = HorizontalAlignment.Left };
@@ -341,13 +350,13 @@ public partial class MainWindow : Window
         {
             var account = a; var card = new StackPanel { Width = 280, Margin = new(0,0,16,16) };
             var image = new Image { Width = 280, Height = 170, Stretch = Stretch.Uniform }; images[a.Id] = image; card.Children.Add(image);
-            card.Children.Add(Text(a.Label)); card.Children.Add(Button("Open game window", () => { try { GameWindows.Focus(account); } catch (InvalidOperationException ex) { Notify(ex.Message); } })); tiles.Children.Add(card);
+            card.Children.Add(Text(a.Label)); card.Children.Add(Button("Play inside Orbit", () => { try { OpenLocalPlay(account); } catch (InvalidOperationException ex) { Notify(ex.Message); } })); tiles.Children.Add(card);
         }
         Navigate("Live view", "Attached local windows. Open a game for native rendering, audio and input.", Scroll(tiles)); foreach (var item in images) liveImages[item.Key] = item.Value;
     }
     private void ActivityClick(object sender, RoutedEventArgs e)
     { var content = new StackPanel(); foreach (var entry in store.State.Activity.Take(250)) content.Children.Add(Text(entry, 12, true)); Navigate("Activity", "Local workspace activity. Sessions and launch tickets are never logged.", Scroll(content)); }
-    private void MigrationClick(object sender, RoutedEventArgs e)
+    private void LegacyMigrationClick(object sender, RoutedEventArgs e)
     {
         var content = new StackPanel { MaxWidth = 760, HorizontalAlignment = HorizontalAlignment.Left };
         content.Children.Add(Text("Native C# migration", 26));
@@ -362,8 +371,10 @@ public partial class MainWindow : Window
     {
         foreach (var a in accounts)
         {
-            if (a.Window != 0 && !GameWindows.Owned(a)) { processOwners.Remove(a.ProcessId); a.Window = 0; a.Status = "Disconnected"; }
+            if (a.Window != 0 && !GameWindows.Owned(a)) { processOwners.Remove(a.ProcessId); a.Window = 0; a.Status = "Disconnected"; ScheduleRecovery(a); }
+            UpdateMetrics(a);
         }
+        await TickFeatures();
         if (capturing || liveImages.Count == 0) return;
         capturing = true;
         try
@@ -393,7 +404,7 @@ public partial class MainWindow : Window
         if (closing) return;
         if (operation is not null) { e.Cancel = true; operation.Cancel(); Notify("Cancelling operation. Close Orbit again once it finishes."); return; }
         e.Cancel = true; refresh.Stop();
-        try { layouts.Restore(accounts); await store.SaveAsync(); }
+        try { await ShutdownFeatures(); layouts.Restore(accounts); await store.SaveAsync(); }
         catch (Exception) { refresh.Start(); MessageBox.Show(this, "Could not save the native workspace. Close again after checking disk access.", "Orbit"); return; }
         if (multiEnabled) OrbitWindow.DisableMulti(); layouts.Dispose(); http.Dispose(); closing = true; Close();
     }

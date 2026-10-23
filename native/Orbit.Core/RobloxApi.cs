@@ -29,7 +29,7 @@ public sealed class RobloxApi(HttpClient http)
     }
     private static HttpRequestMessage Request(HttpMethod method, string url, string cookie)
     {
-        if (cookie.Length is < 20 or > 8192 || cookie.Contains('\r') || cookie.Contains('\n')) throw new ArgumentException("Invalid Roblox session.");
+        if (cookie.Length is < 20 or > 8192 || cookie.Contains('\r') || cookie.Contains('\n') || cookie.Contains(';')) throw new ArgumentException("Invalid Roblox session.");
         var r = new HttpRequestMessage(method, url);
         r.Headers.Add("Cookie", ".ROBLOSECURITY=" + cookie);
         return r;
@@ -68,6 +68,16 @@ public sealed class RobloxApi(HttpClient http)
         if (input.Length > 5_000_000) throw new ArgumentException("Import is limited to 5 MB.");
         var rows = input.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries).Select(x => x.Trim()).Where(x => x.Length > 0).Distinct().ToList();
         if (rows.Count > 5000) throw new ArgumentException("Import is limited to 5,000 sessions.");
-        return rows;
+        var tokens = new List<string>();
+        foreach (var row in rows)
+        {
+            var explicitCookie=System.Text.RegularExpressions.Regex.Match(row,@"(?:^|[\s,""'])\.ROBLOSECURITY\s*=\s*([^;\s""',]+)",System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            var fields=System.Text.RegularExpressions.Regex.Matches(row,@"""(?:[^"" ]|"""")*""|[^,\t]+") .Select(m=>m.Value.Trim().Trim('\"')).ToArray();
+            var token=explicitCookie.Success?explicitCookie.Groups[1].Value:fields.FirstOrDefault(f=>f.StartsWith("_|WARNING:",StringComparison.Ordinal))??(fields.Length==1?fields[0]:"");
+            if(token.Length is <20 or >8192 || token.Any(char.IsWhiteSpace)||token.Contains(';'))
+            { if(tokens.Count==0 && row.Contains("cookie",StringComparison.OrdinalIgnoreCase))continue; throw new ArgumentException("A line contains no valid session. Use one session per line or an explicit cookie/CSV field."); }
+            if(!tokens.Contains(token))tokens.Add(token);
+        }
+        return tokens;
     }
 }

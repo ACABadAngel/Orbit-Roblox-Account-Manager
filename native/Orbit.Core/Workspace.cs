@@ -12,7 +12,7 @@ public class Observable : INotifyPropertyChanged
     protected bool Set<T>(ref T field, T value, [CallerMemberName] string? name = null)
     { if (EqualityComparer<T>.Default.Equals(field, value)) return false; field = value; Changed(name); return true; }
 }
-public sealed class Account : Observable
+public sealed partial class Account : Observable
 {
     public string Id { get; set; } = Guid.NewGuid().ToString();
     public long UserId { get; set; }
@@ -51,7 +51,7 @@ public sealed class LauncherSettings
     public string CurrentVersion { get; set; } = "";
     public Dictionary<string, JsonElement> FastFlags { get; set; } = [];
 }
-public sealed class Workspace
+public sealed partial class Workspace
 {
     public int Version { get; set; } = 2;
     public List<Account> Accounts { get; set; } = [];
@@ -64,6 +64,7 @@ public sealed class Workspace
         if (Version != 2 || Accounts is null || Accounts.Count > 5000 || Profiles is null || Profiles.Count > 100 || Profiles.Count == 0 || Groups is null || Launcher is null) throw new InvalidDataException("Unsupported or damaged native workspace.");
         if (Accounts.Select(a => a.Id).Distinct().Count() != Accounts.Count || Accounts.Any(a => !Guid.TryParse(a.Id, out _) || a.UserId <= 0 || string.IsNullOrWhiteSpace(a.Username) || a.Username.Length > 40)) throw new InvalidDataException("Invalid account records.");
         if (Launcher.LaunchDelaySeconds is < 0 or > 120) throw new InvalidDataException("Launch delay must be 0–120 seconds.");
+        ValidateExtended();
         Deployment.ValidateChannel(Launcher.Channel);
         foreach (var p in Profiles) LaunchUri.ValidateProfile(p);
     }
@@ -80,8 +81,10 @@ public sealed class WorkspaceStore(string directory, ISecretProtector protector)
     public Workspace State { get; private set; } = new();
     private Dictionary<string, string> sessions = [];
     private sealed record Envelope(Workspace State, Dictionary<string, string> Sessions);
+    public void ReplaceState(Workspace state){state.Validate();State=state;}
     public void PutSession(string id, string value) => sessions[id] = value;
     public string Session(string id) => sessions.GetValueOrDefault(id) ?? throw new InvalidOperationException("Sign in to this account again.");
+    public Dictionary<string, string> AccountSessions() => State.Accounts.Where(a => sessions.ContainsKey(a.Id)).ToDictionary(a => a.Id, a => sessions[a.Id]);
     public void Remove(Account a) { State.Accounts.Remove(a); sessions.Remove(a.Id); }
     public Task LoadAsync()
     {

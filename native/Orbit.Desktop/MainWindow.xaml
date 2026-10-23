@@ -1,11 +1,11 @@
-<Window x:Class="Orbit.Desktop.MainWindow" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Title="Orbit · Native preview" Width="1240" Height="820" MinWidth="900" MinHeight="600" WindowStartupLocation="CenterScreen">
+<Window x:Class="Orbit.Desktop.MainWindow" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" Title="Orbit" Width="1240" Height="820" MinWidth="900" MinHeight="600" WindowStartupLocation="CenterScreen">
   <Grid>
     <Grid.ColumnDefinitions><ColumnDefinition Width="204"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
     <Border Background="#101619" BorderBrush="#242D29" BorderThickness="0,0,1,0">
       <DockPanel Margin="20,28,14,20">
-        <StackPanel DockPanel.Dock="Top"><TextBlock Text="⬡ Orbit" FontSize="28" FontWeight="SemiBold" Foreground="{StaticResource Mint}" Margin="8,0,0,4"/><TextBlock Text="C# NATIVE PREVIEW" FontSize="10" Foreground="#68736F" Margin="10,0,0,30"/></StackPanel>
+        <StackPanel DockPanel.Dock="Top"><TextBlock Text="⬡ Orbit" FontSize="28" FontWeight="SemiBold" Foreground="{StaticResource Mint}" Margin="8,0,0,4"/><TextBlock Text="ACCOUNT WORKSPACE" FontSize="10" Foreground="#68736F" Margin="10,0,0,30"/></StackPanel>
         <StackPanel DockPanel.Dock="Bottom"><Button Content="Settings" Click="SettingsClick"/><TextBlock Text="Free · Windows workspace" Foreground="#68736F" FontSize="10" Margin="8,14,0,0"/></StackPanel>
-        <StackPanel><Button Content="Accounts" Click="AccountsClick"/><Button Content="Roblox launcher" Click="LauncherClick"/><Button Content="Live view" Click="LiveClick"/><Button Content="Layouts" Click="LayoutsClick"/><Button Content="Audio" Click="AudioClick"/><Button Content="Activity" Click="ActivityClick"/><Button Content="Migration status" Click="MigrationClick"/></StackPanel>
+        <StackPanel><Button Content="Accounts" Click="AccountsClick"/><Button Content="Roblox launcher" Click="LauncherClick"/><Button Content="Live view" Click="LiveClick"/><Button Content="Layouts" Click="LayoutsClick"/><Button Content="Machines" Click="MachinesClick"/><Button Content="Automation" Click="AutomationClick"/><Button Content="Audio" Click="AudioClick"/><Button Content="Activity" Click="ActivityClick"/><Button Content="Backups &amp; migration" Click="MigrationClick"/></StackPanel>
       </DockPanel>
     </Border>
     <Grid Grid.Column="1" Margin="32,28,32,18">

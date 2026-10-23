@@ -1,95 +1,107 @@
-# Orbit native C# preview
+# Orbit · unified native Windows beta
 
-This branch starts the Windows desktop rewrite of Orbit 0.6.0 in **C# / .NET 10 / WPF**, with an integrated Roblox Player bootstrapper. It is **not yet a feature-complete replacement** for the released Electron app. Keep using stable Orbit for the capabilities marked pending below.
+Orbit combines the Roblox account manager, Player launcher, local game workspace and paired-PC controls in one **C# / .NET 10 / WPF** application. The native application does not require Electron or Node. WebView2 displays Roblox's own sign-in page only.
 
-The workspace, account services, installer, layouts, audio and native integration are C#. WebView2 is used only to display Roblox's own sign-in page; it is not the Orbit application shell. No Electron or Node process is needed to run the native executable.
+This is a beta for Windows validation. The stable Electron application remains available for rollback. Do not replace its release/update feed until live Roblox and two-PC testing is complete.
 
-## Run on Windows 10/11
+## Install or run
 
-Install the .NET 10 SDK, then from the repository root:
+The **Native C# preview** Actions workflow produces `Orbit-Native-Preview-Windows` containing:
+
+- `Orbit-Native-Setup.exe`: per-user installer; no administrator elevation.
+- `Orbit-Native-win-x64.zip`: self-contained portable build and future update payload.
+- `Orbit-Native-win-x64.zip.sha256`: archive checksum.
+- `smoke/`: Windows test results and native screenshots using synthetic CI records.
+
+Install once or extract the portable ZIP and run `Orbit.Native.exe`. Windows 10/11 x64 is required. Roblox sign-in needs Microsoft's Edge WebView2 Runtime. Explicit session/file import is available as an alternative. The beta is unsigned, so Windows can show an unknown-publisher prompt.
+
+From source, with the .NET 10 SDK:
 
 ```powershell
 dotnet run --project native/Orbit.Desktop/Orbit.Desktop.csproj
 ```
 
-Roblox sign-in needs the Microsoft Edge WebView2 Runtime. If it is unavailable, the application also accepts a session explicitly pasted or imported by its owner. No normal browser profiles are read.
+## One account workspace
 
-The **Native C# preview** GitHub Actions workflow produces an **Orbit-Native-Preview-Windows** artifact with a self-contained Windows x64 executable and Windows smoke-test screenshots. This is a development artifact, not an installer or auto-update release. Extract the entire portable folder and run `Orbit.Native.exe`.
+**Accounts** is the starting point. Add an account, select its game profile in the session inspector, then launch, play, arrange, capture or adjust its audio. Search, group/status filters, multi-selection and the More actions menu keep bulk controls out of the way until needed. **Ctrl+K** opens searchable commands.
 
-## Try the launcher
+- Sign in directly with Roblox in an isolated WebView2 profile. Complete any Roblox verification yourself, then choose Finish sign-in. Orbit validates the account identity before saving it.
+- Explicit paste/file import supports raw sessions, `.ROBLOSECURITY=...` cookies and CSV session fields; it does not interpret passwords as sessions.
+- Aliases, notes, groups, profiles, health checks and private-server assignment stay with each account.
+- Running status requires an attributed Roblox process/window. Ambiguous new windows require explicit attachment; protocol handoff alone never means Running.
+- The inspector opens native local play inside a separate Orbit player window, or focuses the original game window. Closing local play restores its original style, owner and placement. Ctrl+Shift+Backspace returns the game to a separate window.
+- Live view and screenshots use the same attached windows. Process PID/start time is checked before native actions so a reused HWND cannot become an unrelated target.
+- Audio sets per-process volume/mute, including Apply to every account. Remote machine pages provide their corresponding audio controls. This controls all Roblox audio, not an individual game's music slider.
 
-1. Open **Roblox launcher** and choose **Install / update**. The official Player is installed under Orbit's separate native data folder.
-2. Use **Settings** to create a launch profile with a Roblox place ID, optional server job ID and optional FastFlag overrides.
-3. **Accounts → Sign in** opens Roblox in an isolated WebView2 profile. Complete Roblox's own sign-in and verification, then choose **Finish sign-in**. Orbit validates the resulting identity before saving it. Alternatively paste/import sessions you own.
-4. Assign a profile through **Edit**. Select accounts and choose **Launch selected**.
-5. Running status requires an attributed native Roblox window. If more than one new window appears, launches stop and ask for explicit **Attach window** confirmation.
-6. **Layouts** lists detected monitor bounds, arranges running windows, and expands/restores each window using tiles. **Audio** sets per-process volume/mute.
+## Integrated Roblox launcher
 
-For multiple sessions, close Roblox and other instance managers first, keep Orbit open, and enable Multiple sessions before launching. Compatibility still depends on Roblox. Orbit reserves named singleton objects; it does not patch the Player, remove another process's handles or bypass verification.
+**Roblox launcher** manages its own official Player installation:
 
-Roblox's deployment and authentication interfaces can change. Real authentication, client launch and graphics capture require tests on Windows using your own accounts; a successful unit test is not proof of live Roblox compatibility.
+- Install, update and repair, channel selection, and optional checks before launch.
+- Strict package manifest, size and checksum checks; staging and safe extraction; Windows Authenticode trust and Roblox Corporation publisher verification before use.
+- Unknown packages, checksum mismatches, traversal/device paths and unsafe archive links fail closed.
+- Profile/global FastFlags are merged per launch. Roblox's own allowlist determines what takes effect; Orbit does not bypass it.
+- Local image/font/sound replacements under approved content folders are supported. Executable and script replacements are rejected. Repair restores official content.
+- Profiles, group spacing, private-server assignment/pools and the selected account all feed the same launch queue.
+- Multiple sessions reserve the published singleton names before launching. Close Roblox and other instance managers first, then keep Orbit open. Compatibility depends on the current Roblox client; Orbit does not patch it or remove handles from another process.
+- Settings → Roblox URL handler explicitly registers Orbit for this user's `roblox-player` links. The prior handler is saved and can be restored. A per-user named pipe forwards links to an already-open Orbit instance.
 
-## Data and migration
+The launcher targets Windows Player. It does not claim to implement Roblox Studio, Froststrap's community mod catalogue or every Froststrap integration.
 
-Native data is stored separately at `%LOCALAPPDATA%\Orbit\NativePreview`:
+## Group rules, automation and layouts
 
-- `workspace.dpapi`: metadata and sessions in one current-user DPAPI-protected envelope.
-- `workspace.dpapi.bak`: previous protected generation.
-- `Roblox/versions`: verified managed Player versions.
-- `Roblox/current.txt`: atomically committed active version.
-- `Roblox/Mods`: explicitly supplied local image, sound and font replacements.
+**Settings → Group launch rules** configures a forced profile, spacing, private-server mode/pool and recovery delay. Unexpected exits can be relaunched automatically, limited to three recovery attempts per account in ten minutes. Manual Stop cancels recovery. Roblox verification and rate limits pause ticket requests; repeated clicks do not bypass the cooldown.
 
-The existing Electron workspace/vault is neither read nor modified. There is no automatic vault conversion or legacy-backup import yet. Reconnect accounts explicitly in this preview; keep the original installation and backups for full-feature use.
+**Automation** saves account workflows and one-time/daily/weekly schedules. Keep Orbit and the PC running. Missed tasks older than five minutes are recorded instead of replayed. Imported schedules are paused until edited and saved. Paid entitlements are checked when the relevant action runs.
 
-Saves replace a single protected generation atomically. Recovery uses the last good protected backup and retains the damaged file. Process IDs, HWNDs and tickets are not persisted. Sessions never appear in account lists or activity logs. Do not copy DPAPI data to a different Windows user expecting it to decrypt.
+**Layouts** detects monitors and physical resolution, supports a quick grid and a drag/resize layout editor, saves normalized placements, and can apply a layout after launch. Live tiles expand a window and restore its prior position; Restore original positions undoes arrangement. Game-enforced minimum sizes remain authoritative. Reassign disconnected or differently named monitors after migration.
 
-## Bootstrapper behavior
+The tray icon can restore the workspace or stop sessions. Ctrl+K → Floating monitor opens a small always-on-top session monitor.
 
-- Fetches Windows Player channel metadata from `clientsettingscdn.roblox.com`.
-- Downloads packages only from `setup.rbxcdn.com`; automatic HTTP redirects are disabled.
-- Strictly parses Roblox's `v0` manifest, known package names, sizes and MD5 checksums. MD5 checks file integrity; HTTPS and Windows Authenticode establish origin.
-- Enforces extraction limits, rejects traversal, drive/ADS/device paths and symlinks.
-- Checks Player Authenticode trust and the Roblox Corporation publisher before committing or launching an installation.
-- Installs into staging, switches the active pointer only after success, and retains old trees for recovery. Unknown packages stop the install instead of guessing their destinations.
-- Repair and explicit updates require closing Roblox. Existing clients are never deliberately killed for an update.
-- FastFlags are scalar JSON profiles merged per launch. Roblox's own allowlist remains authoritative; Orbit does not override it.
-- Local content replacements are restricted to image/audio/font files under approved content paths. They cannot replace executable binaries or scripts. Repair restores original content. No community mod download marketplace is included.
-- Launches are serialized until one unambiguous new game window appears. Rate limits persist across subsequent requests; challenges pause ticket requests until explicit account reconnection.
+## Paired machines and Remote Play
 
-Orbit is not registered as the system Roblox URL handler in this preview. It does not silently take over an existing Roblox/Froststrap installation.
+Use this native version on both PCs, on LAN or a private VPN. It does not interoperate with the old Electron wire protocol.
 
-## Feature parity
+1. On the host, attach accounts to the correct running game windows.
+2. Machines → Host settings: enable hosting, choose LAN/VPN, and explicitly permit input if needed. Default native port is **43129**, so it can coexist with the old app on 43128.
+3. Allow Orbit in Windows Firewall for the private network. No internet port forwarding or relay is required for LAN/VPN use.
+4. Copy the host's address, exact SHA-256 fingerprint and pairing token to the controller's Pair PC form. The fingerprint is checked during TLS before the token is transmitted.
+5. Open the machine's accounts to launch, stop, change volume or watch Remote Play. Take control acquires the host's single input lease; Capture mouse enables relative camera movement.
 
-| Area | Native preview | Remaining before replacing stable Orbit |
-| --- | --- | --- |
-| Interface | Native WPF navigation, accounts, launcher, live thumbnails, layouts, audio, settings, activity | Theme parity, command palette, popouts, tray/monitor tools |
-| Accounts | Roblox WebView2 sign-in, explicit session/file import, identity validation, aliases, groups, notes, health checks, bulk selection | External browser sign-in, legacy vault/backup migration, richer import formats |
-| Launch | Profiles, place/server job IDs, tickets, spacing, multi-session reservation, PID/start-time checks, explicit attachment | Private-server pools, recovery budget, full group overrides |
-| Bootstrapper | Install/update/repair, channel, package verification, safe extraction, global/profile flags, restricted local content mods | Protocol registration and restore/uninstall UI, shortcuts, channel discovery, mod inventory/removal, runtime prerequisites |
-| Local play | Focus real native game, PrintWindow thumbnails | In-workspace docking and restoration, overlay/popout parity |
-| Layouts | Monitor detection, physical pixel arrangement, expand/restore, original-placement recovery | Drag/resize editor, persistent layouts, placement after launch, monitor scaling presentation |
-| Audio | Current-process master volume/mute, apply to all accounts | Group and remote-machine controls, audio session retry |
-| Remote PCs | Not ported | Certificate-pinned hosting/pairing, authentication, control leases, WebRTC 30/60 FPS, relative input, diagnostics |
-| Automation | Not ported | Schedules, workflows, bounded auto-relaunch |
-| Licensing/payments | Not ported; preview has local Free functions | KeyAuth, signed receipts, device entitlements, C# service migration; payment activation stays disabled |
-| App updates | Separate portable development artifact | Small blurred Update/Not now prompt, silent verified replacement, stable/beta feeds and installer migration |
+Remote video uses a native **JPEG-over-TLS WebSocket** path with bounded frames and backpressure, replacing the Electron WebRTC implementation. Targets are 30/60 FPS at maximum heights of 480/720/1080. The player shows received FPS; actual throughput depends on PrintWindow compatibility, CPU, resolution and network. It is not a guaranteed 60 FPS encoder. Audio streaming and gamepad input are not provided.
 
-No missing feature is advertised as working in the native application. The **Migration status** page describes these boundaries in the UI.
+Input maps to client-content coordinates, excluding letterboxing. Host checks bind input to the attached PID/start time. Blur, Escape, disconnect, input disable and an expired lease release held keys/buttons. Only one controller/account can hold foreground input on a host. Rotating the host token invalidates old controllers. Viewing/management grants and device limits are checked on the controller; cleanup/Stop remains available after a grant expires.
 
-## Validate
+## Backups and moving from Electron
+
+In the old app, export an encrypted `.orbit` backup. In native Orbit, use **Backups & migration → Restore backup** with its passphrase. The importer reads the original scrypt/AES-GCM `orbit-backup-v1` format and native PBKDF2/AES-GCM backups.
+
+Merges keep existing accounts and sessions, remap colliding launch profiles, restore account/group/server/layout/automation data, and validate the candidate before changing the active workspace. Existing live native account identities are retained. Imported layouts do not auto-apply and imported schedules are paused. Pairing tokens, host keys and licences are excluded from exports and must be configured separately.
+
+Native data stays in `%LOCALAPPDATA%\Orbit\NativePreview` for continuity with the earlier preview. `workspace.dpapi` contains one current-user Windows-protected envelope; `.bak` is the previous generation. Recovery preserves damaged data before restoring a known-good backup. Existing Electron files are never silently modified. A different Windows user cannot simply copy and decrypt this DPAPI envelope.
+
+## Licences and updates
+
+**Account & Licence** supports KeyAuth licence-only activation with response signature/timestamp checks and HWID binding, or the existing self-hosted Orbit service with Ed25519-signed offline receipts. Public application configuration can be entered in Settings. Never place a seller/admin secret in the desktop app. Native local tools remain Free without a key. Plus/Pro and individual feature grants are enforced for paid operations.
+
+Payments remain disabled. Activating a key does not create a payment subscription. The separate existing licensing server/admin project is not bundled into the Windows desktop executable.
+
+On startup, an available native release opens a small **Not now / Update** dialog over a blurred workspace. An accepted update downloads the portable ZIP, verifies its release checksum, waits for Orbit to exit, replaces files with rollback copies and reopens the app. Game/play windows must be closed first. This skips the initial installer wizard.
+
+Native updates look only for this repository's `native-v...` GitHub releases with `Orbit-Native-win-x64.zip` and its `.sha256` asset. They deliberately do not install old Electron releases or arbitrary Actions artifacts. Stable ignores prereleases; Beta accepts them. Until a native release is published, manual checking correctly reports no newer native release.
+
+## Validation and limits
 
 ```powershell
-dotnet run --project native/Orbit.Tests/Orbit.Tests.csproj -c Release
 dotnet build native/Orbit.slnx -c Release -m:1
+dotnet run --project native/Orbit.Tests/Orbit.Tests.csproj -c Release
 dotnet native/Orbit.Desktop/bin/Release/net10.0-windows/Orbit.Native.dll --smoke-test native/artifacts/smoke
 ```
 
-Core tests run without contacting Roblox and cover install transactions, rejected packages, checksum/signature failure, ZIP escapes, content restrictions, ticket CSRF/verification/rate limits, launch URIs and protected-store recovery. Windows smoke checks exercise DPAPI, publisher rejection and native view rendering with labelled synthetic data. They never sign in or start Roblox.
+Core checks cover launcher transactions, corrupted/unsafe packages, protected storage, native/legacy backup migration and atomic merges, profile collisions, private links, recurrence/layout bounds, licence signatures and feature removal, token/pin validation and input-lease expiry. Windows smoke checks exercise DPAPI, native views, a real localhost pinned HTTPS host/client, and wrong-pin/token rejection. They use synthetic records and never contact Roblox or inject input into it.
 
-Before a production cutover, complete the pending rows, test migration and rollback with real backups, validate local and two-PC behavior on Windows, then replace packaging/updater feeds deliberately. Do not tag this preview as stable.
+Before calling a build production-ready, test real Roblox authentication, two independent accounts/windows, local-play restoration, mixed-DPI monitor layouts, audio, and sustained two-PC control/video with the owner's accounts. A compiled app and a green CI run do not prove live Roblox compatibility or a fixed delivery frame rate.
 
-## Reference and licensing
+## References
 
-Froststrap was inspected for launcher features and Roblox deployment conventions, particularly `RobloxInterfaces/Deployment.cs`, `Models/Manifest/PackageManifest.cs`, `Models/APIs/Config/PackageMaps.cs` and its bootstrapper flow. The new implementation is independently written for Orbit; it does not vendor Froststrap source or its UI. Froststrap's repository is MPL-2.0. Any future direct reuse must preserve the applicable notices and file-level obligations.
-
-Original Orbit native helper code was ported from this repository's MIT-licensed Windows/audio helpers. WebView2 is distributed under Microsoft's package licence. See the root `THIRD_PARTY_NOTICES.md`.
+Froststrap was consulted for launcher features and Roblox deployment conventions. Its source is MPL-2.0; this implementation does not vendor Froststrap code. Original Orbit Windows/audio helper code is MIT. WebView2 and Bouncy Castle retain their package licences; see the root third-party notices.

@@ -28,3 +28,7 @@ Froststrap was consulted for bootstrapper features and Roblox package/deployment
 conventions. Its source is MPL-2.0: https://github.com/Froststrap/Froststrap .
 The new bootstrapper is independently implemented and does not bundle Froststrap
 source. Any future direct source reuse must preserve the applicable MPL notices.
+
+The native core also uses BouncyCastle.Cryptography for legacy scrypt backup
+compatibility and Ed25519 verification. See https://www.bouncycastle.org/about/license/
+and the package's bundled notices.

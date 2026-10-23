@@ -39,12 +39,24 @@ jobs:
         timeout-minutes: 3
       - name: Publish standalone native preview
         run: dotnet publish native/Orbit.Desktop/Orbit.Desktop.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o native/artifacts/portable
+      - name: Package portable update and installer
+        shell: pwsh
+        run: |
+          Set-Content native/artifacts/portable/.orbit-native-install 'Orbit native installation'
+          Copy-Item LICENSE,THIRD_PARTY_NOTICES.md native/artifacts/portable/
+          Compress-Archive -Path native/artifacts/portable/* -DestinationPath native/artifacts/Orbit-Native-win-x64.zip
+          (Get-FileHash native/artifacts/Orbit-Native-win-x64.zip -Algorithm SHA256).Hash.ToLowerInvariant() | Set-Content native/artifacts/Orbit-Native-win-x64.zip.sha256
+          $compiler = Get-Command iscc.exe -ErrorAction SilentlyContinue
+          if ($compiler) { & $compiler.Source native/build-installer.iss } else { & "${env:ProgramFiles(x86)}/Inno Setup 6/ISCC.exe" native/build-installer.iss }
+          if ($LASTEXITCODE -ne 0) { throw 'Installer build failed.' }
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: Orbit-Native-Preview-Windows
           path: |
-            native/artifacts/portable/
+            native/artifacts/Orbit-Native-Setup.exe
+            native/artifacts/Orbit-Native-win-x64.zip
+            native/artifacts/Orbit-Native-win-x64.zip.sha256
             native/artifacts/smoke/
           if-no-files-found: error
 # Development artifact only. Never create a release or replace the stable Electron updater feed.

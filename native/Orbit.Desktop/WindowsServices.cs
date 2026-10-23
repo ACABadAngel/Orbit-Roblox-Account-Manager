@@ -107,6 +107,8 @@ public sealed class LayoutService : IDisposable
         if (!OrbitWindow.GetWindowPlacement(a.Window, ref p)) throw new Win32Exception();
         originals[a.Id] = (a.Window, p, OrbitWindow.GetWindowLong(a.Window, -16));
     }
+    public void Place(Account a,System.Drawing.Rectangle monitor,WindowSlot slot)
+    {Remember(a);OrbitWindow.ShowWindow(a.Window,9);if(!OrbitWindow.SetWindowPos(a.Window,0,monitor.X+(int)(slot.X*monitor.Width),monitor.Y+(int)(slot.Y*monitor.Height),Math.Max(100,(int)(slot.Width*monitor.Width)),Math.Max(100,(int)(slot.Height*monitor.Height)),0x14))throw new Win32Exception();}
     public void Apply(IReadOnlyList<Account> accounts, System.Drawing.Rectangle monitor, int columns)
     {
         if (accounts.Count == 0 || columns is < 1 or > 8) throw new ArgumentException("Select running accounts and 1–8 columns.");

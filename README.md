@@ -6,12 +6,14 @@ and a session inspector.
 
 ![Orbit account workspace](docs/screenshots/accounts.webp)
 
-## Native C# rewrite (development preview)
+## Unified C# Windows beta
 
-A native .NET 10/WPF workspace with an integrated Roblox Player launcher is being
-developed under [`native/`](native/README.md). It has separate protected data and
-Windows CI artifacts. It is not a complete replacement for the stable application;
-the [feature-parity table](native/README.md#feature-parity) lists pending ports.
+The [native application](native/README.md) combines account management, the Roblox
+Player installer/launcher, local play, layouts, automation, paired-PC controls,
+licensing and app updates in one .NET 10/WPF workspace. The Native C# workflow
+produces an installer and portable build. It uses separate protected data and can
+import the old app’s encrypted backups. See its setup and live-validation limits
+before replacing the stable application below.
 
 ## Run it
 

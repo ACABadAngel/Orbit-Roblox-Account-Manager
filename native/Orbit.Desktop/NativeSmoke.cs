@@ -19,9 +19,20 @@ internal static class NativeSmoke
             store.State.Accounts.Add(new() { Username = "Synthetic_CI_Record", UserId = 123, Group = "Testing" });
             await store.SaveAsync(); var loaded = new WorkspaceStore(root, protector); await loaded.LoadAsync();
             if (loaded.State.Accounts.Count != 1) throw new InvalidDataException("Protected store failed to reload.");
-            using var http = new HttpClient(new RejectNetwork()); var window = new MainWindow(loaded, http);
-            app.MainWindow = window; window.Show(); window.SmokeViews(outputDirectory); window.Close();
-            await File.WriteAllTextAsync(Path.Combine(outputDirectory,"windows-smoke.txt"), "PASS: current-user DPAPI, protected store, wrong publisher rejection, six native WPF views rendered without network. Screenshots contain synthetic CI data.\n");
+            using var http = new HttpClient(new RejectNetwork()); var window = new MainWindow(loaded, http, smokeMode:true);
+            app.MainWindow = window; window.Show();
+            var listener=new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback,0);listener.Start();loaded.State.Host.Port=((System.Net.IPEndPoint)listener.LocalEndpoint).Port;listener.Stop();
+            await using(var host=new RemoteHost(window,loaded))
+            {
+                await host.Start();var peer=new PairedMachine{Address="https://127.0.0.1:"+loaded.State.Host.Port,Fingerprint=host.Fingerprint,Token=loaded.State.Host.Token};
+                using(var trusted=new MachineClient(peer)){var state=await trusted.State(default);if(state.Accounts.Length!=1)throw new InvalidDataException("Pinned host state failed.");}
+                var wrong=new PairedMachine{Address=peer.Address,Fingerprint=new string('0',64),Token=peer.Token};
+                try{using var untrusted=new MachineClient(wrong);await untrusted.State(default);throw new InvalidDataException("Wrong certificate was accepted.");}catch(HttpRequestException){}
+                var rejected=new PairedMachine{Address=peer.Address,Fingerprint=peer.Fingerprint,Token=new string('1',64)};
+                try{using var denied=new MachineClient(rejected);await denied.State(default);throw new InvalidDataException("Wrong token was accepted.");}catch(HttpRequestException){}
+            }
+            window.SmokeViews(outputDirectory); window.Close();
+            await File.WriteAllTextAsync(Path.Combine(outputDirectory,"windows-smoke.txt"), "PASS: current-user DPAPI, protected store, wrong publisher rejection, native WPF views, pinned HTTPS host/client, wrong-pin and wrong-token rejection. No external network. Screenshots contain synthetic CI data.\n");
             app.Shutdown(0);
         }
         catch (Exception e)
