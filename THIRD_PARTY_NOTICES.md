@@ -17,3 +17,18 @@ from either reference project.
 
 Roblox and game names belong to their respective owners. Orbit is independent
 and is not endorsed by Roblox, Froststrap, or Roblox Account Manager.
+
+## Native C# preview
+
+The native rewrite under `native/` uses Microsoft WebView2 solely for Roblox sign-in.
+Package and licence: https://www.nuget.org/packages/Microsoft.Web.WebView2 .
+The user must have Microsoft's WebView2 Runtime installed to use that sign-in flow.
+
+Froststrap was consulted for bootstrapper features and Roblox package/deployment
+conventions. Its source is MPL-2.0: https://github.com/Froststrap/Froststrap .
+The new bootstrapper is independently implemented and does not bundle Froststrap
+source. Any future direct source reuse must preserve the applicable MPL notices.
+
+The native core also uses BouncyCastle.Cryptography for legacy scrypt backup
+compatibility and Ed25519 verification. See https://www.bouncycastle.org/about/license/
+and the package's bundled notices.

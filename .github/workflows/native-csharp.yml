@@ -1,0 +1,74 @@
+name: Native C# preview
+on:
+  push:
+    branches: [main, 'codex/**']
+    paths: ['native/**', '.github/workflows/native-csharp.yml']
+  pull_request:
+    paths: ['native/**', '.github/workflows/native-csharp.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: native-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  core:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - run: dotnet run --project native/Orbit.Tests/Orbit.Tests.csproj -c Release
+  windows:
+    runs-on: windows-latest
+    needs: core
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - run: dotnet build native/Orbit.slnx -c Release -m:1
+      - run: dotnet run --project native/Orbit.Tests/Orbit.Tests.csproj -c Release --no-build
+      - name: Exercise DPAPI and render native views
+        shell: pwsh
+        run: |
+          $process = Start-Process dotnet -ArgumentList @('native/Orbit.Desktop/bin/Release/net10.0-windows/Orbit.Native.dll', '--smoke-test', "$PWD/native/artifacts/smoke") -Wait -PassThru
+          Get-Content native/artifacts/smoke/windows-smoke.txt
+          if ($process.ExitCode -ne 0) { throw "Native smoke test failed: $($process.ExitCode)" }
+        timeout-minutes: 3
+      - name: Publish standalone native preview
+        run: dotnet publish native/Orbit.Desktop/Orbit.Desktop.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o native/artifacts/portable
+      - name: Package portable update and installer
+        shell: pwsh
+        run: |
+          Set-Content native/artifacts/portable/.orbit-native-install 'Orbit native installation'
+          Copy-Item LICENSE,THIRD_PARTY_NOTICES.md native/artifacts/portable/
+          Compress-Archive -Path native/artifacts/portable/* -DestinationPath native/artifacts/Orbit-Native-win-x64.zip
+          (Get-FileHash native/artifacts/Orbit-Native-win-x64.zip -Algorithm SHA256).Hash.ToLowerInvariant() | Set-Content native/artifacts/Orbit-Native-win-x64.zip.sha256
+          $compiler = Get-Command iscc.exe -ErrorAction SilentlyContinue
+          if ($compiler) { & $compiler.Source native/build-installer.iss } else { & "${env:ProgramFiles(x86)}/Inno Setup 6/ISCC.exe" native/build-installer.iss }
+          if ($LASTEXITCODE -ne 0) { throw 'Installer build failed.' }
+      - name: Install and launch the packaged application
+        shell: pwsh
+        run: |
+          $installation = Join-Path $env:RUNNER_TEMP 'OrbitNativeInstall'
+          $setup = Start-Process native/artifacts/Orbit-Native-Setup.exe -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',"/DIR=$installation") -Wait -PassThru
+          if ($setup.ExitCode -ne 0 -or !(Test-Path "$installation/Orbit.Native.exe")) { throw 'Installer did not produce Orbit.' }
+          $test = Start-Process "$installation/Orbit.Native.exe" -ArgumentList @('--smoke-test',"$PWD/native/artifacts/smoke/installed") -Wait -PassThru
+          Get-Content native/artifacts/smoke/installed/windows-smoke.txt
+          if ($test.ExitCode -ne 0) { throw 'Installed native application failed smoke checks.' }
+          $uninstall = Start-Process "$installation/unins000.exe" -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART') -Wait -PassThru
+          if ($uninstall.ExitCode -ne 0) { throw 'Native uninstall failed.' }
+        timeout-minutes: 3
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Orbit-Native-Preview-Windows
+          path: |
+            native/artifacts/Orbit-Native-Setup.exe
+            native/artifacts/Orbit-Native-win-x64.zip
+            native/artifacts/Orbit-Native-win-x64.zip.sha256
+            native/artifacts/smoke/
+          if-no-files-found: error
+# Development artifact only. Never create a release or replace the stable Electron updater feed.

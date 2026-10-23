@@ -6,6 +6,15 @@ and a session inspector.
 
 ![Orbit account workspace](docs/screenshots/accounts.webp)
 
+## Unified C# Windows beta
+
+The [native application](native/README.md) combines account management, the Roblox
+Player installer/launcher, local play, layouts, automation, paired-PC controls,
+licensing and app updates in one .NET 10/WPF workspace. The Native C# workflow
+produces an installer and portable build. It uses separate protected data and can
+import the old app’s encrypted backups. See its setup and live-validation limits
+before replacing the stable application below.
+
 ## Run it
 
 Requirements: **Windows 10/11**, Node.js **22 or newer**, and an installed Roblox
