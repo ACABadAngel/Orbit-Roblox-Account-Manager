@@ -342,7 +342,7 @@ public partial class MainWindow : Window
         }
         Navigate("Audio", "Per-process Roblox volume. This changes all game audio, including music.", Scroll(content));
     }
-    private static void ApplyAudio(Account a) { if (GameWindows.Owned(a)) OrbitAudio.Set((uint)a.ProcessId, (float)a.Volume, a.Muted); }
+    private static void ApplyAudio(Account a) { if(!GameWindows.Owned(a))return;try{a.AudioApplied=OrbitAudio.Set((uint)a.ProcessId,(float)a.Volume,a.Muted)>0;if(a.AudioApplied&&a.Error.StartsWith("Audio is unavailable",StringComparison.Ordinal))a.Error="";}catch(System.Runtime.InteropServices.COMException){a.AudioApplied=false;a.Error="Audio is unavailable. Orbit will retry when the game’s audio session is ready.";} }
     private void LiveClick(object sender, RoutedEventArgs e)
     {
         var tiles = new WrapPanel(); var images = new Dictionary<string, Image>();
@@ -373,6 +373,7 @@ public partial class MainWindow : Window
         {
             if (a.Window != 0 && !GameWindows.Owned(a)) { processOwners.Remove(a.ProcessId); a.Window = 0; a.Status = "Disconnected"; ScheduleRecovery(a); }
             UpdateMetrics(a);
+            if(GameWindows.Owned(a)&&!a.AudioApplied)ApplyAudio(a);
         }
         await TickFeatures();
         if (capturing || liveImages.Count == 0) return;

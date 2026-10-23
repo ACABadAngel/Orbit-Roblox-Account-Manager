@@ -91,7 +91,7 @@ public static class GameWindows
         catch (Exception e) when (e is ArgumentException or InvalidOperationException or Win32Exception) { return false; }
     }
     public static void Attach(Account account, GameWindow window)
-    { account.Window = window.Handle; account.ProcessId = window.Pid; account.ProcessStart = window.StartTime; account.Status = "Running"; account.Error = ""; }
+    { account.Window = window.Handle; account.ProcessId = window.Pid; account.ProcessStart = window.StartTime; account.Status = "Running"; account.AudioApplied=false; account.Error = ""; }
     public static void Stop(Account a) { if (Owned(a)) OrbitWindow.PostMessage(a.Window, 0x10, 0, 0); a.Window = 0; a.Status = "Idle"; }
     public static void Focus(Account a) { if (!Owned(a)) throw new InvalidOperationException("Attach this account’s running Roblox window first."); OrbitWindow.FocusGame(a.Window); }
 }

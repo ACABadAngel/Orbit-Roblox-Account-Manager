@@ -4,6 +4,7 @@ public sealed partial class Account
 {
     public bool AutoRelaunch { get; set; } = true;
     public string ServerId { get; set; } = "";
+    [JsonIgnore] public bool AudioApplied {get;set;}
     [JsonIgnore] public bool StopRequested { get; set; }
     [JsonIgnore] public Queue<DateTimeOffset> RecoveryAttempts { get; } = new();
     [JsonIgnore] public DateTimeOffset? RecoverAt { get; set; }

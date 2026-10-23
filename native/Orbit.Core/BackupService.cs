@@ -41,6 +41,7 @@ public static class BackupService
         using var doc=JsonDocument.Parse(bytes);var root=doc.RootElement;var old=root.GetProperty("state");
         if(old.GetProperty("version").GetInt32()!=1)throw new InvalidDataException();
         var state=new Workspace();state.Accounts=old.GetProperty("accounts").Deserialize<List<Account>>(WorkspaceStore.Json)??[];
+        foreach(var a in state.Accounts)if(a.Extra is not null&&a.Extra.TryGetValue("audio",out var audio)){if(audio.TryGetProperty("volume",out var volume))a.Volume=volume.GetDouble();if(audio.TryGetProperty("muted",out var muted))a.Muted=muted.GetBoolean();}
         state.Groups=old.GetProperty("groups").Deserialize<List<string>>()??["Main"];
         state.Profiles=old.GetProperty("profiles").Deserialize<List<LaunchProfile>>(WorkspaceStore.Json)??[new(){Id="default"}];
         if(old.TryGetProperty("settings",out var settings))
