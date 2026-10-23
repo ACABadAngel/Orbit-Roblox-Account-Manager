@@ -76,14 +76,34 @@ public static partial class Deployment
         foreach (var e in zip.Entries)
         {
             ct.ThrowIfCancellationRequested();
-            var path = SafePath(root, e.FullName);
-            if (((e.ExternalAttributes >> 16) & 0xF000) == 0xA000) throw new InvalidDataException("Links are not permitted in packages.");
-            if (e.FullName.EndsWith('/') || e.FullName.EndsWith('\\')) { Directory.CreateDirectory(path); continue; }
-            written = checked(written + e.Length);
-            if (written > expectedSize || e.Length > 2_000_000_000) throw new InvalidDataException("Archive exceeds declared size.");
-            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-            await using var input = e.Open(); await using var output = new FileStream(path, FileMode.Create, FileAccess.Write);
-            await input.CopyToAsync(output, ct);
+            try
+            {
+                if (((e.ExternalAttributes >> 16) & 0xF000) == 0xA000) throw new InvalidDataException("Links are not permitted in packages.");
+                var relative = e.FullName;
+                var directory = relative.EndsWith('/') || relative.EndsWith('\\');
+                if (directory && e.Length != 0) throw new InvalidDataException("Directory entries cannot contain file data.");
+                // Roblox's ZIP writer emits DOS directory records named "\\" and
+                // "\\folder\\", while their files use relative names. Interpret only
+                // these zero-byte, directory-flagged records relative to this package.
+                // Ordinary rooted files, UNC paths and traversal remain rejected.
+                if (directory && (e.ExternalAttributes & 0x10) != 0 && relative.StartsWith('\\') && !relative.StartsWith("\\\\", StringComparison.Ordinal))
+                {
+                    relative = relative[1..];
+                    if (relative.Length == 0) { Directory.CreateDirectory(root); continue; }
+                }
+                var path = SafePath(root, relative);
+                if (directory) { Directory.CreateDirectory(path); continue; }
+                written = checked(written + e.Length);
+                if (written > expectedSize || e.Length > 2_000_000_000) throw new InvalidDataException("Archive exceeds declared size.");
+                Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+                await using var input = e.Open(); await using var output = new FileStream(path, FileMode.Create, FileAccess.Write);
+                await input.CopyToAsync(output, ct);
+            }
+            catch (InvalidDataException error)
+            {
+                var label = e.FullName.Length > 160 ? e.FullName[..160] + "…" : e.FullName;
+                throw new InvalidDataException($"Archive entry '{label.Replace("\r", "\\r").Replace("\n", "\\n")}': {error.Message}", error);
+            }
         }
         if (written != expectedSize) throw new InvalidDataException("Archive size does not match its manifest.");
     }
@@ -158,6 +178,7 @@ public sealed class RobloxInstaller(HttpClient http, string root, Func<string, b
                         var target = Deployment.Directories[p.Name].Length == 0 ? stage : Deployment.SafePath(stage, Deployment.Directories[p.Name]);
                         await Deployment.ExtractAsync(downloaded, target, p.UnpackedSize, ct);
                     }
+                    catch (InvalidDataException error) { throw new InvalidDataException($"{p.Name}: {error.Message}", error); }
                     finally { if (File.Exists(archive)) File.Delete(archive); }
                     done += p.PackedSize;
                 }

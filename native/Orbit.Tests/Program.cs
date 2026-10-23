@@ -7,6 +7,8 @@ using Orbit.Core;
 
 if(args.Length==2 && args[0]=="--verify-native-release") return await NativeReleaseProbe.Run(args[1]);
 
+if(args.Length==2 && args[0]=="--verify-roblox-archives") return await RobloxPackageProbe.Run(args[1]);
+
 var tests = new List<(string Name, Func<Task> Run)>();
 void Test(string name, Func<Task> run) => tests.Add((name, run));
 void Sync(string name, Action run) => Test(name, () => { run(); return Task.CompletedTask; });
@@ -240,6 +242,7 @@ Sync("workspace rejects duplicate accounts and invalid settings", () =>
 ExtendedTests.Register(Test);
 ArtworkTests.Register(Test);
 NativeUpdateTests.Register(Test);
+ArchivePathTests.Register(Test);
 var failed = 0;
 foreach (var test in tests) { try { await test.Run(); Console.WriteLine("PASS " + test.Name); } catch(Exception e) { failed++; Console.Error.WriteLine($"FAIL {test.Name}: {e.GetType().Name}: {e.Message}"); } }
 Console.WriteLine($"{tests.Count - failed}/{tests.Count} native core checks passed.");

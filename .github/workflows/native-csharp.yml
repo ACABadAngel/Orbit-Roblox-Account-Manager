@@ -41,6 +41,14 @@ jobs:
           Get-Content native/artifacts/smoke/windows-smoke.txt
           if ($process.ExitCode -ne 0) { throw "Native smoke test failed: $($process.ExitCode)" }
         timeout-minutes: 3
+      - name: Verify a real Roblox Player installation
+        if: github.ref == 'refs/heads/main'
+        shell: pwsh
+        run: |
+          $process = Start-Process dotnet -ArgumentList @('native/Orbit.Desktop/bin/Release/net10.0-windows/Orbit.Native.dll', '--verify-roblox-install', "$PWD/native/artifacts/roblox-install") -Wait -PassThru
+          Get-Content native/artifacts/roblox-install/roblox-install.txt
+          if ($process.ExitCode -ne 0) { throw "Real Roblox installation failed: $($process.ExitCode)" }
+        timeout-minutes: 12
       - name: Publish standalone native preview
         run: dotnet publish native/Orbit.Desktop/Orbit.Desktop.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o native/artifacts/portable
       - name: Package portable update and installer
@@ -74,6 +82,7 @@ jobs:
             native/artifacts/Orbit-Native-win-x64.zip
             native/artifacts/Orbit-Native-win-x64.zip.sha256
             native/artifacts/smoke/
+            native/artifacts/roblox-install/
           if-no-files-found: error
   publish:
     if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && github.repository == 'ACABadAngel/Orbit-Roblox-Account-Manager'
@@ -99,7 +108,7 @@ jobs:
         if: steps.publish.outputs.published == 'true'
         with:
           dotnet-version: '10.0.x'
-      - name: Verify discovery and checksum from Orbit 0.6.1
+      - name: Verify discovery and checksum from older Orbit versions
         if: steps.publish.outputs.published == 'true'
         run: dotnet run --project native/Orbit.Tests/Orbit.Tests.csproj -c Release -- --verify-native-release "${{ steps.publish.outputs.version }}"
         timeout-minutes: 10

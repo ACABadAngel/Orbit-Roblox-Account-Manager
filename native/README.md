@@ -4,6 +4,12 @@ Orbit combines the Roblox account manager, Player launcher, local game workspace
 
 This is a beta for Windows validation. The stable Electron application remains available for rollback. Native releases use their own tags and assets; the older application keeps its existing update feed.
 
+## 0.6.3 package extraction fix
+
+Roblox's content ZIPs use zero-byte DOS directory markers such as `\` and `\abilities\`. Orbit now maps these directory-flagged records inside the package extraction root. Rooted files, UNC paths, traversal, links and directory entries carrying file data remain rejected. Archive failures now identify the package and entry.
+
+The main Windows pipeline also downloads and installs the current public Roblox Player into an isolated temporary folder before publishing Orbit: package sizes and checksums, all archive extraction and Roblox Corporation Authenticode verification must pass. It never opens the account workspace or launches a game. Existing Orbit 0.6.1/0.6.2 installations receive 0.6.3 through Settings → Updates.
+
 ## 0.6.2 beta compatibility fix
 
 Roblox Windows Player 0.744 includes `RobloxPlayerInstaller.exe` in its package manifest. Orbit 0.6.1 rejected that entry with “Unrecognized Roblox package”. Orbit now validates and skips this standalone bootstrapper, just as it skips the legacy launcher, while installing the verified Player ZIP packages itself. Unknown packages remain rejected. The complete live manifest is retained as a regression fixture, and the installer test verifies that Orbit never downloads or runs the standalone installer. The title bar now displays the actual native app version.
@@ -102,7 +108,7 @@ Native updates look only for this repository's `native-v...` GitHub releases wit
 
 ## Publishing native updates
 
-The native workflow now publishes after the core checks, Windows views, installer launch and uninstallation succeed on `main`. Bump `<Version>` in `native/Directory.Build.props` for each new update and keep `native/build-installer.iss` and the application manifest version in sync. A plain version such as `0.6.2` goes to the default native update channel; a suffixed version such as `0.6.3-beta.1` creates a prerelease for the Beta channel.
+The native workflow now publishes after the core checks, Windows views, real Roblox installation verification, installer launch and uninstallation succeed on `main`. Bump `<Version>` in `native/Directory.Build.props` for each new update and keep `native/build-installer.iss` and the application manifest version in sync. A plain version such as `0.6.2` goes to the default native update channel; a suffixed version such as `0.6.3-beta.1` creates a prerelease for the Beta channel.
 
 The publisher first checks the ZIP against its SHA-256 file, creates a draft `native-v<Version>` release, uploads the ZIP, checksum and installer, and only then publishes it. Published versions are immutable; reruns skip an existing complete release. Native releases set `make_latest=false` so the older Electron app retains its own GitHub latest release. Publication requires the Windows job to succeed and gives write permission only to the publishing job. A public, token-free probe then uses the unchanged 0.6.1 updater to discover the release, download its ZIP and verify the checksum.
 

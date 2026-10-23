@@ -33,7 +33,7 @@ public partial class MainWindow : Window
     private readonly Dictionary<int, string> processOwners = [];
     public MainWindow(WorkspaceStore store, HttpClient http, bool smokeMode = false, HttpClient? artworkClient = null)
     {
-        InitializeComponent(); Title=AppVersionLabel.Text="Orbit "+(typeof(MainWindow).Assembly.GetName().Version?.ToString(3)??"0.6.2"); this.store = store; this.http = http; api = new(http); licensing = new(http,store);
+        InitializeComponent(); Title=AppVersionLabel.Text="Orbit "+(typeof(MainWindow).Assembly.GetName().Version?.ToString(3)??"0.6.3"); this.store = store; this.http = http; api = new(http); licensing = new(http,store);
         if(!smokeMode) Loaded += async (_,_) => await InitializeFeatures();
         installer = new(http, Path.Combine(store.DirectoryPath, "Roblox"), PublisherVerifier.Roblox);
         accounts = new(store.State.Accounts); InitializeDesign(artworkClient); ShowAccounts();

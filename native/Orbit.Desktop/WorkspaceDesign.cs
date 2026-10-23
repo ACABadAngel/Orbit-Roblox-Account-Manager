@@ -24,7 +24,7 @@ public partial class MainWindow
     private void InitializeDesign(HttpClient? artworkClient)
     {
         artworkHttp = artworkClient ?? new HttpClient(new HttpClientHandler { AllowAutoRedirect = false, UseCookies = false }) { Timeout = TimeSpan.FromSeconds(25) };
-        artworkHttp.DefaultRequestHeaders.UserAgent.ParseAdd("Orbit/0.6.2");
+        artworkHttp.DefaultRequestHeaders.UserAgent.ParseAdd("Orbit/0.6.3");
         artwork = new(artworkHttp, lifetime.Token);
         foreach (var item in new (string Title, string Glyph, Action Action)[] {
             ("Accounts","\uE77B",ShowAccounts),("Roblox launcher","\uE7FC",ShowLauncher),("Live view","\uE7F4",()=>LiveClick(this,new())),
