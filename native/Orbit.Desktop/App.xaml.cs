@@ -21,7 +21,7 @@ public partial class App : System.Windows.Application
             var store = new WorkspaceStore(root, new DpapiProtector()); await store.LoadAsync();
             var handler = new HttpClientHandler { AllowAutoRedirect = false, UseCookies = false };
             var http = new HttpClient(handler) { Timeout = TimeSpan.FromMinutes(5), MaxResponseContentBufferSize=5_500_000 };
-            http.DefaultRequestHeaders.UserAgent.ParseAdd("Orbit/0.6.0-CSharp-Preview");
+            http.DefaultRequestHeaders.UserAgent.ParseAdd("Orbit/0.6.2-CSharp-Preview");
             var window = new MainWindow(store, http); MainWindow = window; window.Show();
             if(e.Args.Length==2&&e.Args[0]=="--roblox")await window.HandleProtocol(e.Args[1]);
         }

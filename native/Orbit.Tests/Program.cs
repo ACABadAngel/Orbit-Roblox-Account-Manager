@@ -30,10 +30,26 @@ Sync("launch URI encodes job and rejects ticket injection", () =>
     Reject(() => LaunchUri.Build("ticket", new() { PlaceId = "../bad" }));
     Reject(() => LaunchUri.Build("ticket", new() { PlaceId = "123", JobId = "x&request=Bad" }));
 });
-Sync("manifest parses known packages and skips legacy launcher", () =>
+Sync("manifest parses known packages and skips Roblox bootstrappers", () =>
 {
-    var list = Deployment.ParseManifest("v0\nRobloxApp.zip\n" + new string('a', 32) + "\n10\n20\nRobloxPlayerLauncher.exe\n" + new string('b', 32) + "\n10\n20\n");
+    var list = Deployment.ParseManifest("v0\nRobloxApp.zip\n" + new string('a', 32) + "\n10\n20\nRobloxPlayerLauncher.exe\n" + new string('b', 32) + "\n10\n20\nRobloxPlayerInstaller.exe\n" + new string('c',32) + "\n10\n10\n");
     Assert(list.Count == 1 && list[0].Name == "RobloxApp.zip");
+});
+Sync("captured Roblox Windows Player 0.744 manifest installs without its bootstrapper", () =>
+{
+    var manifest=File.ReadAllText(Path.Combine(AppContext.BaseDirectory,"Fixtures","WindowsPlayer-version-9ac8595712b447a7.manifest.txt"));
+    var packages=Deployment.ParseManifest(manifest);
+    Assert(packages.Count==21 && packages.All(p=>p.Name.EndsWith(".zip",StringComparison.OrdinalIgnoreCase)));
+    Assert(packages.Any(p=>p.Name=="RobloxApp.zip") && packages.Any(p=>p.Name=="WebView2RuntimeInstaller.zip"));
+});
+Sync("skipped bootstrapper entries still require valid and unique manifest records", () =>
+{
+    var app="RobloxApp.zip\n"+new string('a',32)+"\n10\n20\n";
+    var bootstrapper="RobloxPlayerInstaller.exe\n"+new string('b',32)+"\n10\n10\n";
+    Reject(()=>Deployment.ParseManifest("v0\n"+app+bootstrapper.Replace(new string('b',32),"bad")));
+    Reject(()=>Deployment.ParseManifest("v0\n"+app+bootstrapper+bootstrapper));
+    Reject(()=>Deployment.ParseManifest("v0\n"+bootstrapper));
+    Reject(()=>Deployment.ParseManifest("v0\n"+app+bootstrapper.Replace("RobloxPlayerInstaller.exe","UnrecognizedInstaller.exe")));
 });
 Sync("manifest rejects unknown, duplicate, truncated and oversized entries", () =>
 {
@@ -82,7 +98,7 @@ Test("installer commits only a complete verified client", async () =>
     {
         var url = req.RequestUri!.AbsoluteUri; requests.Add(url);
         if (url.Contains("client-version")) return Json(new { version = "0.1", clientVersionUpload = version });
-        if (url.EndsWith("rbxPkgManifest.txt")) return TextResponse(Manifest(zip, 15));
+        if (url.EndsWith("rbxPkgManifest.txt")) return TextResponse(Manifest(zip, 15)+"RobloxPlayerInstaller.exe\n"+new string('b',32)+"\n10\n10\n");
         return new(HttpStatusCode.OK) { Content = new ByteArrayContent(zip) };
     }));
     try
@@ -90,6 +106,7 @@ Test("installer commits only a complete verified client", async () =>
         var verified = false; var installer = new RobloxInstaller(client, root, file => { verified = File.ReadAllText(file) == "official-player"; return verified; });
         var result = await installer.EnsureAsync("live", true, false, null, default);
         Assert(verified && installer.Current()?.Version == version && File.Exists(result.Executable));
+        Assert(requests.Count==3 && !requests.Any(url=>url.EndsWith(".exe",StringComparison.OrdinalIgnoreCase)),"Orbit downloaded the standalone Roblox installer.");
         Assert(requests.All(x => x.StartsWith("https://setup.rbxcdn.com/") || x.StartsWith("https://clientsettingscdn.roblox.com/")));
         Assert(!Directory.GetDirectories(Path.Combine(root, "versions")).Any(x => Path.GetFileName(x).StartsWith(".install-")));
         var n = requests.Count; await installer.EnsureAsync("live", false, false, null, default); Assert(n == requests.Count, "Pinned/offline launch unexpectedly fetched a new build.");

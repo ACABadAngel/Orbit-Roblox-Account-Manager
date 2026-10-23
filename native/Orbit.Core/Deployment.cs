@@ -42,8 +42,10 @@ public static partial class Deployment
             var hash = reader.ReadLine(); var packed = reader.ReadLine(); var unpacked = reader.ReadLine();
             if (hash is null || packed is null || unpacked is null || !HashPattern().IsMatch(hash) || !long.TryParse(packed, out var p) || !long.TryParse(unpacked, out var u) || p is <= 0 or > 2_000_000_000 || u is <= 0 or > 4_000_000_000) throw new InvalidDataException("Invalid package manifest entry.");
             if (!names.Add(name)) throw new InvalidDataException("Duplicate Roblox package.");
-            // The legacy launcher is not part of the managed Player installation.
-            if (name.Equals("RobloxPlayerLauncher.exe", StringComparison.OrdinalIgnoreCase)) continue;
+            // Roblox lists standalone bootstrappers alongside the Player ZIPs. Orbit
+            // installs those ZIPs itself; these executables are not archives to extract.
+            if (name.Equals("RobloxPlayerLauncher.exe", StringComparison.OrdinalIgnoreCase)
+                || name.Equals("RobloxPlayerInstaller.exe", StringComparison.OrdinalIgnoreCase)) continue;
             if (!Directories.ContainsKey(name)) throw new InvalidDataException($"Unrecognized Roblox package '{name}'. Update Orbit before installing this client.");
             result.Add(new(name, hash.ToLowerInvariant(), p, u));
         }

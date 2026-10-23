@@ -4,6 +4,10 @@ Orbit combines the Roblox account manager, Player launcher, local game workspace
 
 This is a beta for Windows validation. The stable Electron application remains available for rollback. Do not replace its release/update feed until live Roblox and two-PC testing is complete.
 
+## 0.6.2 beta compatibility fix
+
+Roblox Windows Player 0.744 includes `RobloxPlayerInstaller.exe` in its package manifest. Orbit 0.6.1 rejected that entry with “Unrecognized Roblox package”. Orbit now validates and skips this standalone bootstrapper, just as it skips the legacy launcher, while installing the verified Player ZIP packages itself. Unknown packages remain rejected. The complete live manifest is retained as a regression fixture, and the installer test verifies that Orbit never downloads or runs the standalone installer. The title bar now displays the actual native app version.
+
 ## Install or run
 
 The **Native C# preview** Actions workflow produces `Orbit-Native-Preview-Windows` containing:

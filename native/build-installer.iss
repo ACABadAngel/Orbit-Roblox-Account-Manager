@@ -1,4 +1,4 @@
-#define AppVersion "0.6.1"
+#define AppVersion "0.6.2"
 [Setup]
 AppId={{3172801E-51D2-44A0-90D1-FA42169D1270}
 AppName=Orbit

@@ -1,4 +1,5 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup><OutputType>Exe</OutputType></PropertyGroup>
   <ItemGroup><ProjectReference Include="../Orbit.Core/Orbit.Core.csproj"/></ItemGroup>
+  <ItemGroup><Content Include="Fixtures/*.txt" CopyToOutputDirectory="PreserveNewest"/></ItemGroup>
 </Project>
