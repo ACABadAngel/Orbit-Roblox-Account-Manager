@@ -10,7 +10,7 @@ permissions:
   contents: read
 concurrency:
   group: native-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 jobs:
   core:
     runs-on: ubuntu-latest
@@ -19,6 +19,10 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: node --test native/scripts/*.test.mjs
       - run: dotnet run --project native/Orbit.Tests/Orbit.Tests.csproj -c Release
   windows:
     runs-on: windows-latest
@@ -71,4 +75,33 @@ jobs:
             native/artifacts/Orbit-Native-win-x64.zip.sha256
             native/artifacts/smoke/
           if-no-files-found: error
-# Development artifact only. Never create a release or replace the stable Electron updater feed.
+  publish:
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && github.repository == 'ACABadAngel/Orbit-Roblox-Account-Manager'
+    needs: windows
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: actions/download-artifact@v4
+        with:
+          name: Orbit-Native-Preview-Windows
+          path: native-release
+      - name: Publish the tested native update
+        id: publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node native/scripts/publish-native.mjs
+      - uses: actions/setup-dotnet@v4
+        if: steps.publish.outputs.published == 'true'
+        with:
+          dotnet-version: '10.0.x'
+      - name: Verify discovery and checksum from Orbit 0.6.1
+        if: steps.publish.outputs.published == 'true'
+        run: dotnet run --project native/Orbit.Tests/Orbit.Tests.csproj -c Release -- --verify-native-release "${{ steps.publish.outputs.version }}"
+        timeout-minutes: 10
+# Feature branches produce artifacts. Main publishes immutable native-v releases
+# only after Windows checks pass, without changing the Electron latest release.

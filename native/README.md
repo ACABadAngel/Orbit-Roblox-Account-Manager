@@ -2,7 +2,7 @@
 
 Orbit combines the Roblox account manager, Player launcher, local game workspace and paired-PC controls in one **C# / .NET 10 / WPF** application. The native application does not require Electron or Node. WebView2 displays Roblox's own sign-in page only.
 
-This is a beta for Windows validation. The stable Electron application remains available for rollback. Do not replace its release/update feed until live Roblox and two-PC testing is complete.
+This is a beta for Windows validation. The stable Electron application remains available for rollback. Native releases use their own tags and assets; the older application keeps its existing update feed.
 
 ## 0.6.2 beta compatibility fix
 
@@ -98,7 +98,13 @@ Payments remain disabled. Activating a key does not create a payment subscriptio
 
 On startup, an available native release opens a small **Not now / Update** dialog over a blurred workspace. An accepted update downloads the portable ZIP, verifies its release checksum, waits for Orbit to exit, replaces files with rollback copies and reopens the app. Game/play windows must be closed first. This skips the initial installer wizard.
 
-Native updates look only for this repository's `native-v...` GitHub releases with `Orbit-Native-win-x64.zip` and its `.sha256` asset. They deliberately do not install old Electron releases or arbitrary Actions artifacts. Stable ignores prereleases; Beta accepts them. Until a native release is published, manual checking correctly reports no newer native release.
+Native updates look only for this repository's `native-v...` GitHub releases with `Orbit-Native-win-x64.zip` and its `.sha256` asset. They deliberately do not install old Electron releases or arbitrary Actions artifacts. Stable ignores prereleases; Beta accepts them. The default-channel 0.6.2 release is visible to existing 0.6.1 installations: restart Orbit, or open Settings → Updates, then choose Update. This uses the small update window and portable replacement rather than the installer wizard.
+
+## Publishing native updates
+
+The native workflow now publishes after the core checks, Windows views, installer launch and uninstallation succeed on `main`. Bump `<Version>` in `native/Directory.Build.props` for each new update and keep `native/build-installer.iss` and the application manifest version in sync. A plain version such as `0.6.2` goes to the default native update channel; a suffixed version such as `0.6.3-beta.1` creates a prerelease for the Beta channel.
+
+The publisher first checks the ZIP against its SHA-256 file, creates a draft `native-v<Version>` release, uploads the ZIP, checksum and installer, and only then publishes it. Published versions are immutable; reruns skip an existing complete release. Native releases set `make_latest=false` so the older Electron app retains its own GitHub latest release. Publication requires the Windows job to succeed and gives write permission only to the publishing job. A public, token-free probe then uses the unchanged 0.6.1 updater to discover the release, download its ZIP and verify the checksum.
 
 ## Validation and limits
 
