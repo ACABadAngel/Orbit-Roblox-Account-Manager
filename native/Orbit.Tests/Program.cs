@@ -219,6 +219,7 @@ Sync("workspace rejects duplicate accounts and invalid settings", () =>
 });
 
 ExtendedTests.Register(Test);
+ArtworkTests.Register(Test);
 var failed = 0;
 foreach (var test in tests) { try { await test.Run(); Console.WriteLine("PASS " + test.Name); } catch(Exception e) { failed++; Console.Error.WriteLine($"FAIL {test.Name}: {e.GetType().Name}: {e.Message}"); } }
 Console.WriteLine($"{tests.Count - failed}/{tests.Count} native core checks passed.");

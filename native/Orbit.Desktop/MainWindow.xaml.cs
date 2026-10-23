@@ -31,18 +31,18 @@ public partial class MainWindow : Window
     private string search = "";
     private readonly Dictionary<string, Image> liveImages = [];
     private readonly Dictionary<int, string> processOwners = [];
-    public MainWindow(WorkspaceStore store, HttpClient http, bool smokeMode = false)
+    public MainWindow(WorkspaceStore store, HttpClient http, bool smokeMode = false, HttpClient? artworkClient = null)
     {
         InitializeComponent(); this.store = store; this.http = http; api = new(http); licensing = new(http,store);
         if(!smokeMode) Loaded += async (_,_) => await InitializeFeatures();
         installer = new(http, Path.Combine(store.DirectoryPath, "Roblox"), PublisherVerifier.Roblox);
-        accounts = new(store.State.Accounts); ShowAccounts();
+        accounts = new(store.State.Accounts); InitializeDesign(artworkClient); ShowAccounts();
         refresh.Tick += Refresh; refresh.Start(); Closing += OnClosing;
         InputBindings.Add(new KeyBinding(new ActionCommand(CommandPalette), Key.K, ModifierKeys.Control));
     }
     private void Navigate(string title, string subtitle, UIElement content)
-    { liveImages.Clear(); PageTitle.Text = title; PageSubtitle.Text = subtitle; Page.Content = content; }
-    private static TextBlock Text(string value, double size = 14, bool muted = false) => new() { Text = value, FontSize = size, TextWrapping = TextWrapping.Wrap, Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString(muted ? "#9DA8A5" : "#F5F7F6")), Margin = new(0,0,0,14) };
+    { liveImages.Clear(); HeaderActions.Children.Clear(); PageTitle.Text = title; PageSubtitle.Text = subtitle; Page.Content = content; SetNavigation(title); }
+    private static TextBlock Text(string value, double size = 14, bool muted = false) => new() { Text = value, FontSize = size, TextWrapping = TextWrapping.Wrap, Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString(muted ? "#A6A6A6" : "#F2F2F2")), Margin = new(0,0,0,14) };
     private static Button Button(string label, Action action)
     { var button = new Button { Content = label }; button.Click += (_, _) => action(); return button; }
     private static WrapPanel Actions(params Button[] buttons)
@@ -71,24 +71,6 @@ public partial class MainWindow : Window
         refresh.Stop(); closing = true;
     }
     private void AccountsClick(object sender, RoutedEventArgs e) => ShowAccounts();
-    private void ShowAccounts()
-    {
-        var panel=new DockPanel();var top=new StackPanel();var more=new Button{Content="More actions  ···"};
-        var menu=new ContextMenu();foreach(var item in new (string,Action)[]{("Paste session",AddAccount),("Import session file",ImportFile),("Check selected accounts",()=>_=Run(CheckHealth)),("Attach Roblox window",AttachWindow),("Select all",()=>accountGrid?.SelectAll()),("Save selected workflow",()=>EditAutomation(null,false)),("Remove selected",RemoveAccounts),("Stop all",StopAll)}){var command=new MenuItem{Header=item.Item1};command.Click+=(_,_)=>item.Item2();menu.Items.Add(command);}more.Click+=(_,_)=>{menu.PlacementTarget=more;menu.IsOpen=true;};
-        var launch=Button("Launch selected",()=>_=Run(LaunchSelected));launch.Background=new SolidColorBrush(Color.FromRgb(105,242,188));launch.Foreground=new SolidColorBrush(Color.FromRgb(7,11,12));launch.Content=new TextBlock{Text="Launch selected",Foreground=new SolidColorBrush(Color.FromRgb(7,11,12))};
-        top.Children.Add(Actions(Button("Add account",SignIn),launch,Button("Stop selected",StopSelected),more));
-        var filters=new Grid();filters.ColumnDefinitions.Add(new(){Width=new GridLength(1,GridUnitType.Star)});filters.ColumnDefinitions.Add(new(){Width=new GridLength(170)});filters.ColumnDefinitions.Add(new(){Width=new GridLength(160)});
-        var filter=new TextBox{Text=search,ToolTip="Search accounts, aliases and groups",Margin=new(0,0,12,14)};filter.SetValue(System.Windows.Automation.AutomationProperties.NameProperty,"Search accounts");filters.Children.Add(filter);
-        var groups=new ComboBox{ItemsSource=new[]{"All groups"}.Concat(store.State.Groups).ToArray(),SelectedItem=groupFilter,Margin=new(0,0,12,14)};Grid.SetColumn(groups,1);filters.Children.Add(groups);
-        var states=new ComboBox{ItemsSource=new[]{"All statuses","Running","Idle","Disconnected","Launch paused","Recovery scheduled","Sign-in required"},SelectedItem=statusFilter,Margin=new(0,0,0,14)};Grid.SetColumn(states,2);filters.Children.Add(states);top.Children.Add(filters);DockPanel.SetDock(top,Dock.Top);panel.Children.Add(top);
-        var view=CollectionViewSource.GetDefaultView(accounts);view.Filter=value=>value is Account a&&(a.Username.Contains(search,StringComparison.OrdinalIgnoreCase)||a.Alias.Contains(search,StringComparison.OrdinalIgnoreCase)||a.Group.Contains(search,StringComparison.OrdinalIgnoreCase))&&(groupFilter=="All groups"||a.Group==groupFilter)&&(statusFilter=="All statuses"||a.Status==statusFilter);
-        filter.TextChanged+=(_,_)=>{search=filter.Text;view.Refresh();};groups.SelectionChanged+=(_,_)=>{groupFilter=groups.SelectedItem as string??"All groups";view.Refresh();};states.SelectionChanged+=(_,_)=>{statusFilter=states.SelectedItem as string??"All statuses";view.Refresh();};
-        var body=new Grid();body.ColumnDefinitions.Add(new(){Width=new GridLength(1,GridUnitType.Star)});body.ColumnDefinitions.Add(new(){Width=new GridLength(260)});accountGrid=new DataGrid{ItemsSource=view};
-        foreach(var c in new[]{("Account","Label",2d),("Status","Status",1.5),("Group","Group",1d)})accountGrid.Columns.Add(new DataGridTextColumn{Header=c.Item1,Binding=new Binding(c.Item2),Width=new DataGridLength(c.Item3,DataGridLengthUnitType.Star)});body.Children.Add(accountGrid);
-        var detail=new StackPanel{Margin=new(20,10,0,0)};detail.Children.Add(Text("Your session",22));detail.Children.Add(Text("Select an account for its game profile, window and controls.",14,true));var inspector=new ScrollViewer{Content=detail,VerticalScrollBarVisibility=ScrollBarVisibility.Auto};Grid.SetColumn(inspector,1);body.Children.Add(inspector);
-        accountGrid.SelectionChanged+=(_,_)=>{detail.Children.Clear();if(accountGrid.SelectedItem is not Account a)return;detail.Children.Add(Text(a.Label,22));detail.Children.Add(Text("@"+a.Username,13,true));var status=new TextBlock{Margin=new(0,8,0,12),TextWrapping=TextWrapping.Wrap};status.SetBinding(TextBlock.TextProperty,new Binding("Status"){Source=a});detail.Children.Add(status);var metrics=new TextBlock{FontSize=11,TextWrapping=TextWrapping.Wrap,Margin=new(0,0,0,14)};metrics.SetBinding(TextBlock.TextProperty,new Binding("Resources"){Source=a});detail.Children.Add(metrics);detail.Children.Add(Text("Game profile",12,true));var profile=new ComboBox{ItemsSource=store.State.Profiles,SelectedItem=Profile(a)};detail.Children.Add(profile);detail.Children.Add(Button("Use this profile",()=>_=Run(async _=>{a.ProfileId=((LaunchProfile)profile.SelectedItem).Id;await SaveAsync("Account profile saved. Group overrides still apply.");})));detail.Children.Add(Button("Play inside Orbit",()=>OpenLocalPlay(a)));detail.Children.Add(Button("Open separate window",()=>_=Run(_=>{GameWindows.Focus(a);return Task.CompletedTask;})));detail.Children.Add(Button("Account settings",EditAccount));detail.Children.Add(Button("Screenshot",()=>SaveScreenshot(a)));var error=new TextBlock{TextWrapping=TextWrapping.Wrap,Foreground=new SolidColorBrush(Color.FromRgb(157,168,165)),Margin=new(0,12,0,0)};error.SetBinding(TextBlock.TextProperty,new Binding("Error"){Source=a});detail.Children.Add(error);};
-        accountGrid.MouseDoubleClick+=(_,_)=>{if(accountGrid.SelectedItem is Account a)OpenLocalPlay(a);};panel.Children.Add(body);Navigate("Accounts","Every account, profile and game window in one workspace. Ctrl/Shift selects multiple accounts.",panel);
-    }
     private void SignIn()
     {
         if (operation is not null) { Notify("Wait for the current operation first."); return; }
@@ -241,36 +223,6 @@ public partial class MainWindow : Window
         _ = Run(async _ => { layouts.Restore(selected); foreach (var a in selected) { store.Remove(a); accounts.Remove(a); processOwners.Remove(a.ProcessId); } await SaveAsync("Account records removed."); });
     }
     private void LauncherClick(object sender, RoutedEventArgs e) => ShowLauncher();
-    private void ShowLauncher()
-    {
-        var content = new StackPanel { MaxWidth = 760, HorizontalAlignment = HorizontalAlignment.Left };
-        content.Children.Add(Text("Your Roblox installation. Managed by Orbit.", 24));
-        content.Children.Add(Text("Install, update or repair the official Windows Player without a separate bootstrapper. Roblox files are downloaded from Roblox’s CDN and verified before use.", 15, true));
-        content.Children.Add(Text(installer.Current() is { } c ? "Installed: " + c.Version : "Roblox has not been installed through Orbit yet.", 14, true));
-        content.Children.Add(Actions(Button("Install / update", () => _ = Run(async ct => { GuardNoGames(); await EnsureClient(ct, false, true); await SaveAsync("Roblox installation ready."); ShowLauncher(); })), Button("Repair", () => _ = Run(async ct => { GuardNoGames(); await EnsureClient(ct, true); await SaveAsync("Roblox repaired."); ShowLauncher(); })), Button("Open Roblox", () => _ = Run(async ct =>
-        {
-            var client = await EnsureClient(ct); await ClientCustomization.ApplyFlagsAsync(client, store.State.Launcher.FastFlags, null, ct);
-            var start = new ProcessStartInfo(client.Executable) { WorkingDirectory = client.Directory, UseShellExecute = false }; start.ArgumentList.Add("roblox://navigation/home"); using var launched = Process.Start(start); Notify("Roblox started. Sign in normally in the Roblox client.");
-        }))));
-        var channel = new TextBox { Text = store.State.Launcher.Channel, MaxWidth = 360, HorizontalAlignment = HorizontalAlignment.Left };
-        content.Children.Add(Text("Update channel", 18)); content.Children.Add(channel);
-        var automatic = new CheckBox { Content = "Check for Roblox updates before launch", IsChecked = store.State.Launcher.UpdateBeforeLaunch }; content.Children.Add(automatic);
-        var multiple = new CheckBox { Content = "Keep multiple Roblox sessions open", IsChecked = store.State.Launcher.MultiSession }; content.Children.Add(multiple);
-        content.Children.Add(Button("Save launcher settings", () => _ = Run(async _ =>
-        {
-            var nextChannel = Deployment.ValidateChannel(channel.Text.Trim());
-            if (nextChannel != store.State.Launcher.Channel) GuardNoGames();
-            store.State.Launcher.Channel = nextChannel; store.State.Launcher.UpdateBeforeLaunch = automatic.IsChecked == true; store.State.Launcher.MultiSession = multiple.IsChecked == true;
-            if (!store.State.Launcher.MultiSession && multiEnabled) { GuardNoGames(); OrbitWindow.DisableMulti(); multiEnabled = false; }
-            await SaveAsync("Launcher settings saved.");
-        })));
-        content.Children.Add(Text("Client customization", 21));
-        content.Children.Add(Text("Roblox controls which FastFlags are allowed. Unsupported flags may be ignored. Content mods replace local images, sounds and fonts only; executable and script replacements are rejected.", 14, true));
-        content.Children.Add(Actions(Button("FastFlag profiles", EditFlags), Button("Open mods folder", () => OpenFolder(Path.Combine(installer.Root, "Mods"))), Button("Apply mods", () => _ = Run(async ct =>
-        { GuardNoGames(); var client = await EnsureClient(ct); var count = await ClientCustomization.ApplyModsAsync(Path.Combine(installer.Root, "Mods"), client, ct); await SaveAsync($"Applied {count} content replacements. Repair to restore original files."); })), Button("Open install folder", () => OpenFolder(installer.Root))));
-        content.Children.Add(Text("Use Accounts to launch a specific account and place. Settings → Roblox URL handler lets you register Orbit and restore the previous launcher.", 14, true));
-        Navigate("Roblox launcher", "Integrated installation, channels and client customization.", Scroll(content));
-    }
     private static void GuardNoGames() { if (GameWindows.List().Count > 0) throw new InvalidOperationException("Close all Roblox clients before changing this installation."); }
     private static void OpenFolder(string path) { Directory.CreateDirectory(path); Process.Start(new ProcessStartInfo("explorer.exe") { ArgumentList = { path }, UseShellExecute = false })?.Dispose(); }
     private void EditFlags()
@@ -281,22 +233,17 @@ public partial class MainWindow : Window
     }
     private void BasicSettingsClick(object sender, RoutedEventArgs e)
     {
-        var content = new StackPanel { MaxWidth = 740, HorizontalAlignment = HorizontalAlignment.Left };
-        content.Children.Add(Text("Launch profiles", 24));
-        foreach (var profile in store.State.Profiles)
+        var panel = new StackPanel();
+        panel.Children.Add(Actions(Button("General",()=>SettingsClick(this,new())),Button("Launch profiles",()=>BasicSettingsClick(this,new())),Button("Group rules",GroupSettings),Button("Private servers",PrivateServersPage),Button("Updates",()=>_=CheckForUpdates(true))));
+        foreach(var profile in store.State.Profiles)
         {
-            var p = profile; content.Children.Add(Button($"{p.Name}  ·  {(p.PlaceId.Length == 0 ? "No place selected" : p.PlaceId)}", () => EditProfile(p)));
+            var p=profile;var preview=GameSummary(p);var actions=Actions(Button("Edit profile",()=>EditProfile(p)));
+            panel.Children.Add(Card(Columns(2,1,preview,actions)));
         }
-        content.Children.Add(Button("Add launch profile", () => EditProfile(null)));
-        content.Children.Add(Text("Launch spacing", 21));
-        var spacing = new TextBox { Text = store.State.Launcher.LaunchDelaySeconds.ToString(), Width = 100, HorizontalAlignment = HorizontalAlignment.Left }; content.Children.Add(spacing);
-        content.Children.Add(Button("Save spacing", () => _ = Run(async _ => { if (!int.TryParse(spacing.Text, out var seconds) || seconds is < 0 or > 120) throw new ArgumentException("Choose 0–120 seconds."); store.State.Launcher.LaunchDelaySeconds = seconds; await SaveAsync("Launch spacing saved."); })));
-        content.Children.Add(Text("Native preview data", 21));
-        content.Children.Add(Text("Your native workspace uses a separate Windows-protected data file. Existing Electron accounts and settings are not changed. Add accounts here explicitly; the old vault is not silently imported.", 14, true));
-        content.Children.Add(Button("Open native data folder", () => OpenFolder(store.DirectoryPath)));
-        content.Children.Add(Text("Updates and licences", 21));
-        content.Children.Add(Text("Account & Licence connects your publisher service. Backups & migration imports an encrypted backup from the previous app. App updates use the separate native release feed.", 14, true));
-        Navigate("Settings", "Small controls for your accounts and launcher.", Scroll(content));
+        panel.Children.Add(Button("Add launch profile",()=>EditProfile(null)));
+        var spacing=new TextBox{Text=store.State.Launcher.LaunchDelaySeconds.ToString(),Width=100,HorizontalAlignment=HorizontalAlignment.Left};
+        panel.Children.Add(Card(Section("Launch spacing",Text("Seconds between launches. Group rules can override this value.",12,true),spacing,Button("Save spacing",()=>_=Run(async _=>{if(!int.TryParse(spacing.Text,out var seconds)||seconds is <0 or >120)throw new ArgumentException("Choose 0–120 seconds.");store.State.Launcher.LaunchDelaySeconds=seconds;await SaveAsync("Launch spacing saved.");})))));
+        Navigate("Settings","Profiles, recovery, backups, licences and app updates.",Scroll(panel));
     }
     private void EditProfile(LaunchProfile? existing)
     {
@@ -326,47 +273,7 @@ public partial class MainWindow : Window
     }
     private sealed record MonitorOption(Screen Screen, int Index)
     { public override string ToString() => $"Monitor {Index + 1} · {Screen.Bounds.Width} × {Screen.Bounds.Height} · {Screen.DeviceName}{(Screen.Primary ? " · Primary" : "")}"; }
-    private void AudioClick(object sender, RoutedEventArgs e)
-    {
-        var content = new StackPanel();
-        var all = new Slider { Minimum = 0, Maximum = 100, Value = 100, Width = 320, HorizontalAlignment = HorizontalAlignment.Left, Margin = new(0,14,0,18) };
-        content.Children.Add(Text("All accounts", 22)); content.Children.Add(all);
-        content.Children.Add(Button("Apply to every account", () => _ = Run(async _ => { foreach (var a in accounts) { a.Volume = all.Value / 100; ApplyAudio(a); } await SaveAsync("Volume saved for all accounts."); })));
-        foreach (var a in accounts)
-        {
-            var account = a; content.Children.Add(Text(account.Label, 17));
-            var row = new StackPanel { Orientation = Orientation.Horizontal };
-            var slider = new Slider { Minimum = 0, Maximum = 100, Value = account.Volume * 100, Width = 260, Margin = new(0,0,18,18) };
-            var mute = new CheckBox { Content = "Mute", IsChecked = account.Muted }; row.Children.Add(slider); row.Children.Add(mute);
-            row.Children.Add(Button("Apply", () => _ = Run(async _ => { account.Volume = slider.Value / 100; account.Muted = mute.IsChecked == true; ApplyAudio(account); await SaveAsync("Account audio saved."); }))); content.Children.Add(row);
-        }
-        Navigate("Audio", "Per-process Roblox volume. This changes all game audio, including music.", Scroll(content));
-    }
     private static void ApplyAudio(Account a) { if(!GameWindows.Owned(a))return;try{a.AudioApplied=OrbitAudio.Set((uint)a.ProcessId,(float)a.Volume,a.Muted)>0;if(a.AudioApplied&&a.Error.StartsWith("Audio is unavailable",StringComparison.Ordinal))a.Error="";}catch(System.Runtime.InteropServices.COMException){a.AudioApplied=false;a.Error="Audio is unavailable. Orbit will retry when the game’s audio session is ready.";} }
-    private void LiveClick(object sender, RoutedEventArgs e)
-    {
-        var tiles = new WrapPanel(); var images = new Dictionary<string, Image>();
-        foreach (var a in accounts.Where(GameWindows.Owned).Take(9))
-        {
-            var account = a; var card = new StackPanel { Width = 280, Margin = new(0,0,16,16) };
-            var image = new Image { Width = 280, Height = 170, Stretch = Stretch.Uniform }; images[a.Id] = image; card.Children.Add(image);
-            card.Children.Add(Text(a.Label)); card.Children.Add(Button("Play inside Orbit", () => { try { OpenLocalPlay(account); } catch (InvalidOperationException ex) { Notify(ex.Message); } })); tiles.Children.Add(card);
-        }
-        Navigate("Live view", "Attached local windows. Open a game for native rendering, audio and input.", Scroll(tiles)); foreach (var item in images) liveImages[item.Key] = item.Value;
-    }
-    private void ActivityClick(object sender, RoutedEventArgs e)
-    { var content = new StackPanel(); foreach (var entry in store.State.Activity.Take(250)) content.Children.Add(Text(entry, 12, true)); Navigate("Activity", "Local workspace activity. Sessions and launch tickets are never logged.", Scroll(content)); }
-    private void LegacyMigrationClick(object sender, RoutedEventArgs e)
-    {
-        var content = new StackPanel { MaxWidth = 760, HorizontalAlignment = HorizontalAlignment.Left };
-        content.Children.Add(Text("Native C# migration", 26));
-        content.Children.Add(Text("Available in this preview", 20));
-        content.Children.Add(Text("Roblox sign-in and session/file import · Windows-protected storage · Profiles and launch queue · Roblox installation, update and repair · Channel settings · FastFlag profiles · Local content replacements · Window attachment · Live previews · Monitor layouts · Process audio · Activity", 15, true));
-        content.Children.Add(Text("Still using stable Orbit", 20));
-        content.Children.Add(Text("External Chrome/Edge profile sign-in · Legacy encrypted backup migration · Private-server pools · Bounded auto-relaunch · HTTPS pairing · WebRTC remote video/input · Advanced layouts · Schedules/workflows · KeyAuth and offline licensing · Silent app updates · Tray/popout/monitor tools", 15, true));
-        content.Children.Add(Text("This is a development preview, not a feature-complete replacement for Orbit 0.6.0. Stable Orbit remains available while the remaining services are ported and tested on Windows.", 15, true));
-        Navigate("Migration status", "Feature parity is explicit. No demo data is presented as a working service.", Scroll(content));
-    }
     private async void Refresh(object? sender, EventArgs e)
     {
         foreach (var a in accounts)
@@ -407,7 +314,7 @@ public partial class MainWindow : Window
         e.Cancel = true; refresh.Stop();
         try { await ShutdownFeatures(); layouts.Restore(accounts); await store.SaveAsync(); }
         catch (Exception) { refresh.Start(); MessageBox.Show(this, "Could not save the native workspace. Close again after checking disk access.", "Orbit"); return; }
-        if (multiEnabled) OrbitWindow.DisableMulti(); layouts.Dispose(); http.Dispose(); closing = true; Close();
+        if (multiEnabled) OrbitWindow.DisableMulti(); layouts.Dispose(); artworkHttp.Dispose(); http.Dispose(); closing = true; Close();
     }
 }
 internal sealed class ActionCommand(Action action) : ICommand

@@ -54,16 +54,6 @@ public partial class MainWindow
         }
         return new{ok=true};
     }
-    private void MachinesClick(object sender,RoutedEventArgs e)
-    {
-        var panel=new StackPanel();panel.Children.Add(Actions(Button("Pair PC",PairMachine),Button("Host settings",HostSettings),Button("Pairing details",PairingDetails),Button("Rotate host token",()=>_=Run(async _=>{store.State.Host.Token=Convert.ToHexString(RandomNumberGenerator.GetBytes(32));await RestartHost();await SaveAsync("Host token rotated. Existing controllers must pair again.");})),Button("Launch across PCs",()=>_=Run(async ct=>{licensing.Require("crossMachineBulk");foreach(var machine in store.State.Machines){RequireMachine(machine);using var client=new MachineClient(machine);var state=await client.State(ct);foreach(var a in state.Accounts.Where(a=>!a.Running))await client.Command(new("launch",a.Id),ct);}await SaveAsync("Cross-PC launch completed.");}))));
-        foreach(var peer in store.State.Machines)
-        {
-            var machine=peer;panel.Children.Add(Text(machine.Name,22));panel.Children.Add(Text(machine.Address,12,true));panel.Children.Add(Actions(Button("Open accounts",()=>_=Run(async ct=>{RequireMachine(machine);using var client=new MachineClient(machine);var snapshot=await client.State(ct);ShowMachine(machine,snapshot);})),Button("Unpair",()=>_=Run(async _=>{store.State.Machines.Remove(machine);await SaveAsync("Machine unpaired.");MachinesClick(this,new());}))));
-        }
-        panel.Children.Add(Text("Use native Orbit on both PCs over LAN or a private VPN. Hosting is off by default. Certificates are trusted only by their exact SHA-256 fingerprint. Remote input requires permission on the host and a single active control lease.",14,true));
-        Navigate("Machines","Your accounts and launcher, across your own PCs.",Scroll(panel));
-    }
     private void RequireMachine(PairedMachine machine)
     {licensing.Require("remoteControl");var index=store.State.Machines.FindIndex(p=>p.Id==machine.Id);if(index<0||index>=licensing.Status.Devices)throw new InvalidOperationException("This PC exceeds your licence’s managed-device allowance.");}
     private void PairMachine()

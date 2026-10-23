@@ -21,6 +21,12 @@ From source, with the .NET 10 SDK:
 dotnet run --project native/Orbit.Desktop/Orbit.Desktop.csproj
 ```
 
+## Graphite desktop interface
+
+The native shell follows the supplied nine-screen Orbit reference: compact sidebar, custom resizable title bar, graphite panels, off-white primary buttons, switches, sliders, table rows and a persistent workspace status bar. Accounts, launcher, layouts, machines, automation, audio, backups, settings and licensing share the same controls. Empty workspaces show useful actions rather than sample accounts or machines.
+
+Game profiles resolve place IDs to universe IDs and load real public Roblox artwork and creator names. Account rows load public avatar headshots. Requests use a separate cookie-free client, match returned IDs explicitly, share concurrent work and cache successful images for 30 minutes. Pending images are retried; unavailable or moderated artwork shows a placeholder and a retry button. Image requests are bounded and restricted to HTTPS Roblox CDN addresses. Wide artwork falls back to the experience icon. Live view continues to show actual attached game captures.
+
 ## One account workspace
 
 **Accounts** is the starting point. Add an account, select its game profile in the session inspector, then launch, play, arrange, capture or adjust its audio. Search, group/status filters, multi-selection and the More actions menu keep bulk controls out of the way until needed. **Ctrl+K** opens searchable commands.

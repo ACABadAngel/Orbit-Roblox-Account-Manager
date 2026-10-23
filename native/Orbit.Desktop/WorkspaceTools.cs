@@ -106,16 +106,6 @@ public partial class MainWindow
         await SaveAsync("Automation: "+item.Name);
     }
     private void AutomationClick(object sender,RoutedEventArgs e)=>ShowAutomation();
-    private void ShowAutomation()
-    {
-        var panel=new StackPanel();panel.Children.Add(Actions(Button("New schedule",()=>EditAutomation(null,true)),Button("Save workflow",()=>EditAutomation(null,false))));
-        panel.Children.Add(Text("Schedules",22));
-        foreach(var item in store.State.Schedules){var s=item;panel.Children.Add(Text($"{s.Name} · {s.At?.ToLocalTime():g} · {s.Repeat} · {s.State}",14,true));panel.Children.Add(Actions(Button("Edit",()=>EditAutomation(s,true)),Button("Delete",()=>DeleteAutomation(s,true))));}
-        panel.Children.Add(Text("Saved workflows",22));
-        foreach(var item in store.State.Workflows){var s=item;panel.Children.Add(Actions(Button("Run "+s.Name,()=>_=Run(async ct=>{licensing.Require("workflows");if(s.Action=="stop"){foreach(var a in accounts.Where(a=>s.AccountIds.Contains(a.Id))){a.StopRequested=true;GameWindows.Stop(a);}}else await LaunchAccounts(accounts.Where(a=>s.AccountIds.Contains(a.Id)).ToArray(),ct);await SaveAsync("Workflow: "+s.Name);})),Button("Edit",()=>EditAutomation(s,false)),Button("Delete",()=>DeleteAutomation(s,false))));}
-        panel.Children.Add(Text("Keep Orbit and the host PC running. Tasks more than five minutes late are marked missed. Recurring schedules and saved workflows require an active paid grant.",13,true));
-        Navigate("Automation","Launch or stop the right accounts at the right time.",Scroll(panel));
-    }
     private void DeleteAutomation(Automation item,bool schedule)=>_=Run(async _=>{(schedule?store.State.Schedules:store.State.Workflows).Remove(item);await SaveAsync("Automation removed.");ShowAutomation();});
     private void EditAutomation(Automation? item,bool schedule)
     {
@@ -144,15 +134,6 @@ public partial class MainWindow
         else
         {var chooser=new SaveFileDialog{Filter="Encrypted Orbit backup|*.orbit",FileName="orbit-backup.orbit"};if(chooser.ShowDialog(this)==true)_=Run(async ct=>{var payload=BackupService.Export(store);var encrypted=await Task.Run(()=>BackupService.Encrypt(payload,pass),ct);await File.WriteAllTextAsync(chooser.FileName,encrypted,ct);Notify("Encrypted backup exported.");});}
     }
-    private void SettingsClick(object sender,RoutedEventArgs e)
-    {
-        var panel=new StackPanel();panel.Children.Add(Actions(Button("Launch profiles",()=>BasicSettingsClick(this,new())),Button("Group launch rules",GroupSettings),Button("Private servers",PrivateServersPage),Button("Account & Licence",LicensePage),Button("Export backup",BackupExport),Button("Restore backup",BackupImport),Button("Roblox URL handler",ProtocolSettings),Button("Updates",()=>_=CheckForUpdates(true))));
-        var traySetting=new CheckBox{Content="Minimize Orbit to the system tray",IsChecked=store.State.MinimizeToTray};var updates=new CheckBox{Content="Check for app updates when Orbit opens",IsChecked=store.State.CheckUpdates};panel.Children.Add(traySetting);panel.Children.Add(updates);
-        var channel=new ComboBox{ItemsSource=new[]{"stable","beta"},SelectedItem=store.State.UpdateChannel,HorizontalAlignment=HorizontalAlignment.Left};panel.Children.Add(Text("App update channel"));panel.Children.Add(channel);
-        panel.Children.Add(Button("Save preferences",()=>_=Run(async _=>{store.State.MinimizeToTray=traySetting.IsChecked==true;store.State.CheckUpdates=updates.IsChecked==true;store.State.UpdateChannel=channel.SelectedItem as string??"stable";await SaveAsync("Preferences saved.");})));
-        panel.Children.Add(Text("Everything stays in one workspace",22));panel.Children.Add(Text("Accounts share launch profiles, group rules, recovery settings and your managed Roblox installation. Live view, layouts and audio act on the same attributed game processes. Machines extends those controls to paired PCs.",15,true));
-        Navigate("Settings","Profiles, recovery, backups, licences and app updates.",Scroll(panel));
-    }
     private void GroupSettings()
     {
         var form=new FormDialog(this,"Group launch rules");var group=form.Choose("Group",store.State.Groups,store.State.Groups.FirstOrDefault()??"Main");
@@ -162,19 +143,12 @@ public partial class MainWindow
     }
     private void PrivateServersPage()
     {
-        var panel=new StackPanel();panel.Children.Add(Button("Add private server",()=>EditServer(null)));foreach(var s in store.State.PrivateServers){var item=s;panel.Children.Add(Actions(Button(item.Name+" · "+item.PlaceId,()=>EditServer(item)),Button("Remove",()=>_=Run(async _=>{store.State.PrivateServers.Remove(item);await SaveAsync("Private server removed.");PrivateServersPage();}))));}Navigate("Private servers","Access codes and invites stay in your protected workspace.",Scroll(panel));
+        var panel=new StackPanel();panel.Children.Add(Button("Add private server",()=>EditServer(null)));foreach(var s in store.State.PrivateServers){var item=s;panel.Children.Add(Card(Actions(Button(item.Name+" · "+item.PlaceId,()=>EditServer(item)),Button("Remove",()=>_=Run(async _=>{store.State.PrivateServers.Remove(item);await SaveAsync("Private server removed.");PrivateServersPage();})))));}Navigate("Private servers","Access codes and invites stay in your protected workspace.",Scroll(panel));
     }
     private void EditServer(PrivateServer? server)
     {
         var form=new FormDialog(this,"Private server");var name=form.Text("Name",server?.Name??"");var place=form.Text("Place ID",server?.PlaceId??"");var target=form.Text("Private invite or access code",server?.Target??"");
         if(form.ShowDialog()==true)_=Run(async _=>{LaunchUri.ValidateProfile(new(){PlaceId=place.Text});if(!System.Text.RegularExpressions.Regex.IsMatch(target.Text,@"^[a-zA-Z0-9_-]{8,256}$"))PrivateServers.ValidateLink(target.Text,place.Text);if(name.Text.Length is <1 or >80)throw new ArgumentException("Enter a server name.");var value=new PrivateServer{Id=server?.Id??Guid.NewGuid().ToString(),Name=name.Text,PlaceId=place.Text,Target=target.Text};if(server is null)store.State.PrivateServers.Add(value);else store.State.PrivateServers[store.State.PrivateServers.IndexOf(server)]=value;await SaveAsync("Private server saved.");PrivateServersPage();});
-    }
-    private void LicensePage()
-    {
-        var panel=new StackPanel{MaxWidth=720,HorizontalAlignment=HorizontalAlignment.Left};var status=licensing.Status;
-        panel.Children.Add(Text("Orbit "+status.Plan.ToUpperInvariant(),26));panel.Children.Add(Text($"Managed PCs: {status.Devices} · {licensing.Error}",14,true));
-        panel.Children.Add(Actions(Button("Activate key",()=>{var form=new FormDialog(this,"Activate Orbit");var box=form.Password("Licence key");if(form.ShowDialog()==true){var key=box.Password;form.ClearSecrets();_=Run(async ct=>{await licensing.Activate(key,ct);await SaveAsync("Licence activated.");LicensePage();});}else form.ClearSecrets();}),Button("Configure service",ConfigureLicence),Button("Remove local key",()=>_=Run(async _=>{licensing.Clear();await SaveAsync("Local licence removed.");LicensePage();}))));
-        panel.Children.Add(Text("Payments are disabled. Activation accepts keys from the configured publisher service. Removing a local key does not reset a KeyAuth HWID binding.",14,true));Navigate("Account & Licence","Free local tools remain available without a key.",Scroll(panel));
     }
     private void ConfigureLicence()
     {
@@ -184,8 +158,6 @@ public partial class MainWindow
     private void CommandPalette()
     {
         var commands=new Dictionary<string,Action>{{"Accounts",ShowAccounts},{"Roblox launcher",ShowLauncher},{"Live view",()=>LiveClick(this,new())},{"Layouts",()=>LayoutsClick(this,new())},{"Machines",()=>MachinesClick(this,new())},{"Automation",ShowAutomation},{"Audio",()=>AudioClick(this,new())},{"Settings",()=>SettingsClick(this,new())},{"Stop all",StopAll},{"Sign in",SignIn},{"Account & Licence",LicensePage},{"Export backup",BackupExport},{"Floating monitor",()=>{var monitor=new MonitorWindow(this,accounts);sessionWindows.Add(monitor);monitor.Closed+=(_,_)=>sessionWindows.Remove(monitor);monitor.Show();}}};
-        var dialog=new Window{Owner=this,Title="Orbit commands",Width=560,Height=480,WindowStartupLocation=WindowStartupLocation.CenterOwner};var panel=new DockPanel{Margin=new(20)};var filter=new TextBox();DockPanel.SetDock(filter,Dock.Top);panel.Children.Add(filter);var list=new ListBox{ItemsSource=commands.Keys.ToArray(),Background=new SolidColorBrush(Color.FromRgb(16,22,25)),Foreground=Brushes.White};panel.Children.Add(list);filter.TextChanged+=(_,_)=>list.ItemsSource=commands.Keys.Where(k=>k.Contains(filter.Text,StringComparison.OrdinalIgnoreCase)).ToArray();void Execute(){if(list.SelectedItem is string k){dialog.Close();commands[k]();}}list.MouseDoubleClick+=(_,_)=>Execute();dialog.KeyDown+=(_,e)=>{if(e.Key==Key.Escape)dialog.Close();if(e.Key==Key.Enter)Execute();};dialog.Content=panel;dialog.Loaded+=(_,_)=>filter.Focus();dialog.ShowDialog();
+        var dialog=new Window{Owner=this,Title="Orbit commands",Width=560,Height=480,WindowStartupLocation=WindowStartupLocation.CenterOwner};var panel=new DockPanel{Margin=new(20)};var filter=new TextBox();DockPanel.SetDock(filter,Dock.Top);panel.Children.Add(filter);var list=new ListBox{ItemsSource=commands.Keys.ToArray(),Background=new SolidColorBrush(Color.FromRgb(32,32,32)),Foreground=Brushes.White};panel.Children.Add(list);filter.TextChanged+=(_,_)=>list.ItemsSource=commands.Keys.Where(k=>k.Contains(filter.Text,StringComparison.OrdinalIgnoreCase)).ToArray();void Execute(){if(list.SelectedItem is string k){dialog.Close();commands[k]();}}list.MouseDoubleClick+=(_,_)=>Execute();dialog.KeyDown+=(_,e)=>{if(e.Key==Key.Escape)dialog.Close();if(e.Key==Key.Enter)Execute();};dialog.Content=panel;dialog.Loaded+=(_,_)=>filter.Focus();dialog.ShowDialog();
     }
-    private void MigrationClick(object sender,RoutedEventArgs e)
-    {var panel=new StackPanel();panel.Children.Add(Text("Move your accounts into Orbit",26));panel.Children.Add(Text("In the old app, export an encrypted Orbit backup. Restore that .orbit file here using its passphrase. Existing native accounts are kept; pairing and licences are configured separately.",15,true));panel.Children.Add(Actions(Button("Restore backup",BackupImport),Button("Export backup",BackupExport)));Navigate("Backups & migration","One protected workspace for your accounts and launcher.",panel);}
 }
