@@ -49,6 +49,18 @@ jobs:
           $compiler = Get-Command iscc.exe -ErrorAction SilentlyContinue
           if ($compiler) { & $compiler.Source native/build-installer.iss } else { & "${env:ProgramFiles(x86)}/Inno Setup 6/ISCC.exe" native/build-installer.iss }
           if ($LASTEXITCODE -ne 0) { throw 'Installer build failed.' }
+      - name: Install and launch the packaged application
+        shell: pwsh
+        run: |
+          $installation = Join-Path $env:RUNNER_TEMP 'OrbitNativeInstall'
+          $setup = Start-Process native/artifacts/Orbit-Native-Setup.exe -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',"/DIR=$installation") -Wait -PassThru
+          if ($setup.ExitCode -ne 0 -or !(Test-Path "$installation/Orbit.Native.exe")) { throw 'Installer did not produce Orbit.' }
+          $test = Start-Process "$installation/Orbit.Native.exe" -ArgumentList @('--smoke-test',"$PWD/native/artifacts/smoke/installed") -Wait -PassThru
+          Get-Content native/artifacts/smoke/installed/windows-smoke.txt
+          if ($test.ExitCode -ne 0) { throw 'Installed native application failed smoke checks.' }
+          $uninstall = Start-Process "$installation/unins000.exe" -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART') -Wait -PassThru
+          if ($uninstall.ExitCode -ne 0) { throw 'Native uninstall failed.' }
+        timeout-minutes: 3
       - uses: actions/upload-artifact@v4
         if: always()
         with:
