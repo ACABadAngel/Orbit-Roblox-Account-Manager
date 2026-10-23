@@ -29,7 +29,7 @@ public sealed class RemoteHost(MainWindow main,WorkspaceStore store) : IAsyncDis
         {
             using var rsa=RSA.Create(2048);var req=new CertificateRequest("CN=Orbit Host",rsa,HashAlgorithmName.SHA256,RSASignaturePadding.Pkcs1);req.CertificateExtensions.Add(new X509BasicConstraintsExtension(false,false,0,true));req.CertificateExtensions.Add(new X509KeyUsageExtension(X509KeyUsageFlags.DigitalSignature|X509KeyUsageFlags.KeyEncipherment,true));var usages=new OidCollection{new("1.3.6.1.5.5.7.3.1")};req.CertificateExtensions.Add(new X509EnhancedKeyUsageExtension(usages,true));using var generated=req.CreateSelfSigned(DateTimeOffset.UtcNow.AddMinutes(-5),DateTimeOffset.UtcNow.AddYears(2));settings.Certificate=Convert.ToBase64String(generated.Export(X509ContentType.Pfx));
         }
-        cert=X509CertificateLoader.LoadPkcs12(Convert.FromBase64String(settings.Certificate),null,X509KeyStorageFlags.EphemeralKeySet);
+        cert=X509CertificateLoader.LoadPkcs12(Convert.FromBase64String(settings.Certificate),null,X509KeyStorageFlags.UserKeySet);
         var builder=WebApplication.CreateSlimBuilder();builder.Logging.ClearProviders();builder.WebHost.ConfigureKestrel(k=>{k.Limits.MaxRequestBodySize=65536;k.Limits.MaxConcurrentConnections=12;k.Limits.RequestHeadersTimeout=TimeSpan.FromSeconds(10);k.Listen(settings.Lan?IPAddress.Any:IPAddress.Loopback,settings.Port,l=>l.UseHttps(cert));});
         app=builder.Build();app.UseWebSockets();
         app.Use(async(ctx,next)=>

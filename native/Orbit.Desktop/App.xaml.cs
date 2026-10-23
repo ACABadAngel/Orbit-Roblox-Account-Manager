@@ -11,6 +11,8 @@ public partial class App : System.Windows.Application
         if (e.Args.Length == 2 && e.Args[0] == "--smoke-test") { await NativeSmoke.Run(this, e.Args[1]); return; }
         if(e.Args.Length==4&&e.Args[0]=="--apply-update")
         {ShutdownMode=System.Windows.ShutdownMode.OnExplicitShutdown;try{await UpdateApplier.Apply(e.Args[1],e.Args[2],int.Parse(e.Args[3]));Shutdown(0);}catch(Exception ex){MessageBox.Show("Orbit update could not complete: "+ex.Message,"Orbit");Shutdown(1);}return;}
+        if(e.Args.Length==1&&e.Args[0]=="--restore-handler")
+        {try{if(ProtocolIntegration.IsOrbit())ProtocolIntegration.Restore(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),"Orbit","NativePreview","previous-protocol.json"));}catch(Exception){}Shutdown();return;}
         single = new Mutex(true, "Local\\OrbitNativeWorkspace", out var created);
         if (!created) { if(e.Args.Length==2&&e.Args[0]=="--roblox") {try{await ProtocolPipe.Send(e.Args[1]);}catch(Exception){MessageBox.Show("Orbit could not receive this launch. Open it and try the link again.","Orbit");}} else MessageBox.Show("Orbit is already open. Use its tray icon to show the workspace.","Orbit");Shutdown(); return; }
         try

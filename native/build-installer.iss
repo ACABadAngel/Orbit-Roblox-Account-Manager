@@ -15,6 +15,7 @@ Compression=lzma2
 SolidCompression=yes
 DisableProgramGroupPage=yes
 UninstallDisplayIcon={app}\Orbit.Native.exe
+SetupIconFile=..\build\icon.ico
 [Files]
 Source: "artifacts\portable\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 [Icons]
@@ -26,3 +27,6 @@ Name: "desktopicon"; Description: "Create a desktop shortcut"; Flags: unchecked
 Filename: "{app}\Orbit.Native.exe"; Description: "Open Orbit"; Flags: nowait postinstall skipifsilent
 ; Roblox URL registration stays an explicit, reversible action inside Orbit.
 ; Data is under LocalAppData\Orbit\NativePreview and is retained on uninstall.
+
+[UninstallRun]
+Filename: "{app}\Orbit.Native.exe"; Parameters: "--restore-handler"; Flags: runhidden waituntilterminated
