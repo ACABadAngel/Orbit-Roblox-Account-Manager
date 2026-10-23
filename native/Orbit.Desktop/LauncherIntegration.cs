@@ -45,9 +45,11 @@ public partial class MainWindow
 }
 public sealed class LocalPlayer : Window
 {
+    [System.Runtime.InteropServices.DllImport("user32.dll")]private static extern short GetAsyncKeyState(int key);
     private readonly Account account;private readonly Border area=new(){Background=System.Windows.Media.Brushes.Black};private readonly DispatcherTimer follow=new(){Interval=TimeSpan.FromMilliseconds(100)};private OrbitWindow.PLACEMENT placement;private int style;private nint previousOwner;private bool restored;
     public LocalPlayer(Window owner,Account account)
     {
+        SetResourceReference(StyleProperty,typeof(Window));
         this.account=account;Owner=owner;Title=account.Label+" · Orbit Local Play";Width=1100;Height=760;WindowStartupLocation=WindowStartupLocation.CenterOwner;
         placement=new(){length=System.Runtime.InteropServices.Marshal.SizeOf<OrbitWindow.PLACEMENT>()};OrbitWindow.GetWindowPlacement(account.Window,ref placement);style=OrbitWindow.GetWindowLong(account.Window,-16);previousOwner=OrbitWindow.Owner(account.Window);
         var panel=new DockPanel();var back=new Button{Content="Return to separate window · Ctrl+Shift+Backspace",Margin=new(12)};back.Click+=(_,_)=>Close();DockPanel.SetDock(back,Dock.Top);panel.Children.Add(back);panel.Children.Add(area);Content=panel;
@@ -56,7 +58,7 @@ public sealed class LocalPlayer : Window
     private void Align()
     {
         if(!IsLoaded||restored)return;if(!GameWindows.Owned(account)){Close();return;}
-        if(System.Windows.Input.Keyboard.IsKeyDown(System.Windows.Input.Key.LeftCtrl)&&System.Windows.Input.Keyboard.IsKeyDown(System.Windows.Input.Key.LeftShift)&&System.Windows.Input.Keyboard.IsKeyDown(System.Windows.Input.Key.Back)){Close();return;}
+        if((GetAsyncKeyState(17)&0x8000)!=0&&(GetAsyncKeyState(16)&0x8000)!=0&&(GetAsyncKeyState(8)&0x8000)!=0){Close();return;}
         if(WindowState==WindowState.Minimized){OrbitWindow.ShowWindow(account.Window,6);return;}var top=area.PointToScreen(new(0,0));var bottom=area.PointToScreen(new(area.ActualWidth,area.ActualHeight));OrbitWindow.ShowWindow(account.Window,9);OrbitWindow.SetWindowPos(account.Window,0,(int)top.X,(int)top.Y,Math.Max(100,(int)(bottom.X-top.X)),Math.Max(100,(int)(bottom.Y-top.Y)),0x34);
     }
     private void Restore()

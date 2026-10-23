@@ -64,10 +64,10 @@ public partial class MainWindow : Window
     private async Task SaveAsync(string message)
     { store.Log(message); await store.SaveAsync(); Notify(message); }
     private IReadOnlyList<Account> Selected() => accountGrid?.SelectedItems.Cast<Account>().ToArray() ?? [];
-    internal void SmokeViews(string output)
+    internal async Task SmokeViews(string output)
     {
         foreach (var view in new (string, Action)[] { ("accounts", ShowAccounts), ("launcher", ShowLauncher), ("settings", () => SettingsClick(this, new())), ("layouts", () => LayoutsClick(this, new())), ("audio", () => AudioClick(this, new())), ("migration", () => MigrationClick(this, new())), ("machines",()=>MachinesClick(this,new())), ("automation",ShowAutomation), ("licence",LicensePage) })
-        { view.Item2(); UpdateLayout(); var bitmap = new RenderTargetBitmap((int)ActualWidth, (int)ActualHeight, 96, 96, PixelFormats.Pbgra32); bitmap.Render(this); var encoder = new PngBitmapEncoder(); encoder.Frames.Add(BitmapFrame.Create(bitmap)); using var file = File.Create(Path.Combine(output, view.Item1 + ".png")); encoder.Save(file); }
+        { view.Item2(); UpdateLayout(); await Dispatcher.InvokeAsync(()=>{},DispatcherPriority.ContextIdle); var bitmap = new RenderTargetBitmap((int)ActualWidth, (int)ActualHeight, 96, 96, PixelFormats.Pbgra32); bitmap.Render(this); var encoder = new PngBitmapEncoder(); encoder.Frames.Add(BitmapFrame.Create(bitmap)); using var file = File.Create(Path.Combine(output, view.Item1 + ".png")); encoder.Save(file); }
         refresh.Stop(); closing = true;
     }
     private void AccountsClick(object sender, RoutedEventArgs e) => ShowAccounts();
@@ -268,7 +268,7 @@ public partial class MainWindow : Window
         content.Children.Add(Text("Roblox controls which FastFlags are allowed. Unsupported flags may be ignored. Content mods replace local images, sounds and fonts only; executable and script replacements are rejected.", 14, true));
         content.Children.Add(Actions(Button("FastFlag profiles", EditFlags), Button("Open mods folder", () => OpenFolder(Path.Combine(installer.Root, "Mods"))), Button("Apply mods", () => _ = Run(async ct =>
         { GuardNoGames(); var client = await EnsureClient(ct); var count = await ClientCustomization.ApplyModsAsync(Path.Combine(installer.Root, "Mods"), client, ct); await SaveAsync($"Applied {count} content replacements. Repair to restore original files."); })), Button("Open install folder", () => OpenFolder(installer.Root))));
-        content.Children.Add(Text("Use Accounts to launch a specific account and place. Native preview does not register itself as your Windows Roblox URL handler.", 14, true));
+        content.Children.Add(Text("Use Accounts to launch a specific account and place. Settings → Roblox URL handler lets you register Orbit and restore the previous launcher.", 14, true));
         Navigate("Roblox launcher", "Integrated installation, channels and client customization.", Scroll(content));
     }
     private static void GuardNoGames() { if (GameWindows.List().Count > 0) throw new InvalidOperationException("Close all Roblox clients before changing this installation."); }

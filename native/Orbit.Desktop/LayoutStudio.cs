@@ -12,6 +12,7 @@ public sealed class LayoutEditor : Window
     public SavedLayout? Result{get;private set;}
     public LayoutEditor(Window owner,IReadOnlyList<Account> accounts,SavedLayout? existing)
     {
+        SetResourceReference(StyleProperty,typeof(Window));
         this.accounts=accounts;Owner=owner;Title="Window layout editor";Width=800;Height=720;WindowStartupLocation=WindowStartupLocation.CenterOwner;ResizeMode=ResizeMode.NoResize;
         name.Text=existing?.Name??"My layout";auto.IsChecked=existing?.AutoApply==true;monitor.ItemsSource=Screen.AllScreens.Select(s=>s.DeviceName+" · "+s.Bounds.Width+" × "+s.Bounds.Height).ToArray();monitor.SelectedIndex=Math.Max(0,Array.FindIndex(Screen.AllScreens,s=>s.DeviceName==existing?.Monitor));
         if(existing is not null)slots.AddRange(existing.Slots.Select(s=>new WindowSlot{AccountId=s.AccountId,X=s.X,Y=s.Y,Width=s.Width,Height=s.Height}));

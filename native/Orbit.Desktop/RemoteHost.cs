@@ -55,7 +55,7 @@ public sealed class RemoteHost(MainWindow main,WorkspaceStore store) : IAsyncDis
                     while(!cancel.IsCancellationRequested&&ws.State==WebSocketState.Open)
                     {
                         var clock=Stopwatch.StartNew();var handle=await main.Dispatcher.InvokeAsync(()=>main.RemoteCaptureHandle(id));
-                        var frame=await Task.Run(()=>GameCapture.Jpeg(handle,settings.StreamHeight),cancel.Token);
+                        var frame=await Task.Run(()=>GameCapture.Jpeg(handle,settings.StreamHeight),cancel.Token).WaitAsync(TimeSpan.FromSeconds(3),cancel.Token);
                         // Re-check ownership after capture so a reused HWND cannot leak another process’s frame.
                         if(handle!=await main.Dispatcher.InvokeAsync(()=>main.RemoteCaptureHandle(id)))break;
                         if(frame is null)throw new InvalidOperationException("This Roblox window cannot be captured. Use windowed mode.");
@@ -63,7 +63,7 @@ public sealed class RemoteHost(MainWindow main,WorkspaceStore store) : IAsyncDis
                         var remaining=TimeSpan.FromSeconds(1d/settings.StreamFps)-clock.Elapsed;if(remaining>TimeSpan.Zero)await Task.Delay(remaining,cancel.Token);
                     }
                 }
-                catch(Exception e)when(e is WebSocketException or OperationCanceledException or InvalidOperationException){}
+                catch(Exception e)when(e is WebSocketException or OperationCanceledException or InvalidOperationException or TimeoutException){}
                 finally{cancel.Cancel();ws.Abort();await receive;}
             }
             finally{streams.Release();}

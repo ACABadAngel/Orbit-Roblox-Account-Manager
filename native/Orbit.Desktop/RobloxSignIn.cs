@@ -13,6 +13,7 @@ public sealed class RobloxSignIn : Window
     public string? Session { get; private set; }
     public RobloxSignIn(Window owner)
     {
+        SetResourceReference(StyleProperty,typeof(Window));
         Owner = owner; Title = "Roblox sign-in · Orbit"; Width = 860; Height = 720; WindowStartupLocation = WindowStartupLocation.CenterOwner;
         var panel = new DockPanel(); var footer = new StackPanel { Margin = new(12), Orientation = Orientation.Horizontal };
         var finish = new Button { Content = "Finish sign-in" }; finish.Click += Finish;

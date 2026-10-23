@@ -6,6 +6,7 @@ public sealed class FormDialog : Window
     private readonly StackPanel fields = new();
     public FormDialog(Window owner, string title, string description = "")
     {
+        SetResourceReference(StyleProperty,typeof(Window));
         Owner = owner; Title = title; Width = 540; SizeToContent = SizeToContent.Height; MaxHeight = 760; WindowStartupLocation = WindowStartupLocation.CenterOwner;
         var panel = new StackPanel { Margin = new Thickness(26) };
         panel.Children.Add(new TextBlock { Text = title, FontSize = 25, FontWeight = FontWeights.SemiBold, Margin = new(0,0,0,14) });

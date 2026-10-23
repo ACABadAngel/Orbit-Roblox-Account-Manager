@@ -31,7 +31,7 @@ internal static class NativeSmoke
                 var rejected=new PairedMachine{Address=peer.Address,Fingerprint=peer.Fingerprint,Token=new string('1',64)};
                 try{using var denied=new MachineClient(rejected);await denied.State(default);throw new InvalidDataException("Wrong token was accepted.");}catch(HttpRequestException){}
             }
-            window.SmokeViews(outputDirectory); window.Close();
+            await window.SmokeViews(outputDirectory); window.Close();
             await File.WriteAllTextAsync(Path.Combine(outputDirectory,"windows-smoke.txt"), "PASS: current-user DPAPI, protected store, wrong publisher rejection, native WPF views, pinned HTTPS host/client, wrong-pin and wrong-token rejection. No external network. Screenshots contain synthetic CI data.\n");
             app.Shutdown(0);
         }

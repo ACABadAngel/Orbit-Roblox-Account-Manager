@@ -58,7 +58,7 @@ public sealed class LicenseService(HttpClient http,WorkspaceStore store)
                 {if(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()<o.LastSeenAt-300000)throw new InvalidDataException();var d=LicenseSignatures.Receipt(o.Receipt,o.PublicKey,o.DeviceId,DateTimeOffset.UtcNow);var overrides=d.GetProperty("features").EnumerateObject().ToDictionary(p=>p.Name,p=>p.Value.GetBoolean());return LicenseSignatures.WithOverrides(LicenseSignatures.Grant(d.GetProperty("plan").GetString()!,d.GetProperty("maxDevices").GetInt32(),DateTimeOffset.FromUnixTimeMilliseconds(d.GetProperty("offlineUntil").GetInt64())),overrides);}
                 catch(Exception e)when(e is not OutOfMemoryException){return Entitlement.Free;}
             }
-            return DateTimeOffset.UtcNow>=checkedAt.AddSeconds(-5)&&DateTimeOffset.UtcNow<verifiedUntil&&DateTimeOffset.UtcNow<grant.Until?grant:Entitlement.Free;
+            return verifiedUntil!=default&&checkedAt!=default&&DateTimeOffset.UtcNow<verifiedUntil&&DateTimeOffset.UtcNow>=checkedAt.AddSeconds(-5)&&DateTimeOffset.UtcNow<grant.Until?grant:Entitlement.Free;
         }
     }
     public void Require(string feature){if(!Status.Has(feature))throw new InvalidOperationException("This feature needs an active Plus or Pro licence. Open Account & Licence.");}
