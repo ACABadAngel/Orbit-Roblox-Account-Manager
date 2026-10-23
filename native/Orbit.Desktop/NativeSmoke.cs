@@ -20,17 +20,20 @@ internal static class NativeSmoke
             if (protectedBytes.SequenceEqual(secret) || !protector.Unprotect(protectedBytes).SequenceEqual(secret)) throw new CryptographicException("DPAPI round trip failed.");
             if (PublisherVerifier.Roblox(Environment.ProcessPath!)) throw new InvalidDataException("Unsigned Orbit was incorrectly accepted as Roblox.");
             var store = new WorkspaceStore(root, protector);
-            store.State.Accounts.Add(new() { Username = "Synthetic_CI_Record", UserId = 123, Group = "Testing" });
+            for(var i=0;i<6;i++)store.State.Accounts.Add(new(){Username="Synthetic_CI_Record_"+(i+1),Alias=i==0?"Synthetic CI record":"CI account "+(i+1),UserId=123+i,Group=i%2==0?"Testing":"Main"});
+            for(var i=0;i<3;i++)store.State.Schedules.Add(new(){Name="Synthetic CI schedule "+(i+1),At=DateTimeOffset.Now.AddDays(i+1),State="paused",AccountIds=[store.State.Accounts[i].Id]});
+            store.State.Workflows.Add(new(){Name="Synthetic launch workflow",AccountIds=[store.State.Accounts[0].Id]});
+            store.State.Workflows.Add(new(){Name="Synthetic stop workflow",Action="stop",AccountIds=[store.State.Accounts[0].Id]});
             store.State.Profiles[0].PlaceId="123";store.State.Profiles[0].Name="Synthetic CI experience";
             await store.SaveAsync(); var loaded = new WorkspaceStore(root, protector); await loaded.LoadAsync();
-            if (loaded.State.Accounts.Count != 1) throw new InvalidDataException("Protected store failed to reload.");
+            if (loaded.State.Accounts.Count != 6) throw new InvalidDataException("Protected store failed to reload.");
             using var http = new HttpClient(new RejectNetwork()); using var artworkHttp=new HttpClient(new ArtworkFixture()); var window = new MainWindow(loaded, http, smokeMode:true, artworkClient:artworkHttp);
             app.MainWindow = window; window.Show();
             var listener=new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback,0);listener.Start();loaded.State.Host.Port=((System.Net.IPEndPoint)listener.LocalEndpoint).Port;listener.Stop();
             await using(var host=new RemoteHost(window,loaded))
             {
                 await host.Start();var peer=new PairedMachine{Address="https://127.0.0.1:"+loaded.State.Host.Port,Fingerprint=host.Fingerprint,Token=loaded.State.Host.Token};
-                using(var trusted=new MachineClient(peer)){var state=await trusted.State(default);if(state.Accounts.Length!=1)throw new InvalidDataException("Pinned host state failed.");}
+                using(var trusted=new MachineClient(peer)){var state=await trusted.State(default);if(state.Accounts.Length!=6)throw new InvalidDataException("Pinned host state failed.");}
                 var wrong=new PairedMachine{Address=peer.Address,Fingerprint=new string('0',64),Token=peer.Token};
                 try{using var untrusted=new MachineClient(wrong);await untrusted.State(default);throw new InvalidDataException("Wrong certificate was accepted.");}catch(HttpRequestException){}
                 var rejected=new PairedMachine{Address=peer.Address,Fingerprint=peer.Fingerprint,Token=new string('1',64)};
@@ -60,7 +63,7 @@ internal static class NativeSmoke
             if(path.Contains("/places/"))body=new{universeId=456};
             else if(request.RequestUri.Host=="games.roblox.com")body=new{data=new[]{new{id=456,name="Synthetic CI experience",creator=new{name="Offline test fixture"}}}};
             else if(path.Contains("multiget"))body=new{data=new[]{new{universeId=456,thumbnails=new[]{new{state="Completed",imageUrl="https://tr.rbxcdn.com/fixture.png"}}}}};
-            else body=new{data=new[]{new{targetId=path.Contains("avatar")?123:456,state="Completed",imageUrl="https://tr.rbxcdn.com/fixture.png"}}};
+            else body=new{data=new[]{new{targetId=path.Contains("avatar")?long.Parse(request.RequestUri.Query.Split("userIds=")[1].Split('&')[0]):456,state="Completed",imageUrl="https://tr.rbxcdn.com/fixture.png"}}};
             return Task.FromResult(new HttpResponseMessage(System.Net.HttpStatusCode.OK){Content=new StringContent(JsonSerializer.Serialize(body))});
         }
     }

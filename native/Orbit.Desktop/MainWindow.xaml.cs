@@ -39,10 +39,13 @@ public partial class MainWindow : Window
         accounts = new(store.State.Accounts); InitializeDesign(artworkClient); ShowAccounts();
         refresh.Tick += Refresh; refresh.Start(); Closing += OnClosing;
         InputBindings.Add(new KeyBinding(new ActionCommand(CommandPalette), Key.K, ModifierKeys.Control));
+        InputBindings.Add(new KeyBinding(new ActionCommand(()=>BasicSettingsClick(this,new())),Key.D1,ModifierKeys.Control));
+        InputBindings.Add(new KeyBinding(new ActionCommand(GroupSettings),Key.D2,ModifierKeys.Control));
+        InputBindings.Add(new KeyBinding(new ActionCommand(PrivateServersPage),Key.D3,ModifierKeys.Control));
     }
     private void Navigate(string title, string subtitle, UIElement content)
     { liveImages.Clear(); HeaderActions.Children.Clear(); PageTitle.Text = title; PageSubtitle.Text = subtitle; Page.Content = content; SetNavigation(title); }
-    private static TextBlock Text(string value, double size = 14, bool muted = false) => new() { Text = value, FontSize = size, TextWrapping = TextWrapping.Wrap, Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString(muted ? "#A6A6A6" : "#F2F2F2")), Margin = new(0,0,0,14) };
+    private static TextBlock Text(string value, double size = 14, bool muted = false) => new() { Text = value, FontSize = size, TextWrapping = TextWrapping.Wrap, Foreground = new SolidColorBrush((Color)ColorConverter.ConvertFromString(muted ? "#A6A6A6" : "#F2F2F2")), Margin = new(0,0,0,10) };
     private static Button Button(string label, Action action)
     { var button = new Button { Content = label }; button.Click += (_, _) => action(); return button; }
     private static WrapPanel Actions(params Button[] buttons)
@@ -66,9 +69,15 @@ public partial class MainWindow : Window
     private IReadOnlyList<Account> Selected() => accountGrid?.SelectedItems.Cast<Account>().ToArray() ?? [];
     internal async Task SmokeViews(string output)
     {
-        foreach (var view in new (string, Action)[] { ("accounts", ShowAccounts), ("launcher", ShowLauncher), ("settings", () => SettingsClick(this, new())), ("layouts", () => LayoutsClick(this, new())), ("audio", () => AudioClick(this, new())), ("migration", () => MigrationClick(this, new())), ("machines",()=>MachinesClick(this,new())), ("automation",ShowAutomation), ("licence",LicensePage) })
-        { view.Item2(); UpdateLayout(); await Dispatcher.InvokeAsync(()=>{},DispatcherPriority.ContextIdle); var bitmap = new RenderTargetBitmap((int)ActualWidth, (int)ActualHeight, 96, 96, PixelFormats.Pbgra32); bitmap.Render(this); var encoder = new PngBitmapEncoder(); encoder.Frames.Add(BitmapFrame.Create(bitmap)); using var file = File.Create(Path.Combine(output, view.Item1 + ".png")); encoder.Save(file); }
-        refresh.Stop(); closing = true;
+        async Task CaptureView(string name,Action show)
+        {
+            show();UpdateLayout();await Dispatcher.InvokeAsync(()=>{},DispatcherPriority.ContextIdle);
+            if(name.StartsWith("accounts") && (accountGrid is null || accountGrid.ActualWidth<400 || accountGrid.ActualHeight<180))throw new InvalidDataException("Account table is clipped by the filter panel.");
+            var bitmap=new RenderTargetBitmap((int)ActualWidth,(int)ActualHeight,96,96,PixelFormats.Pbgra32);bitmap.Render(this);var encoder=new PngBitmapEncoder();encoder.Frames.Add(BitmapFrame.Create(bitmap));using var file=File.Create(Path.Combine(output,name+".png"));encoder.Save(file);
+        }
+        foreach(var view in new (string,Action)[]{("accounts",ShowAccounts),("launcher",ShowLauncher),("settings",()=>SettingsClick(this,new())),("layouts",()=>LayoutsClick(this,new())),("audio",()=>AudioClick(this,new())),("migration",()=>MigrationClick(this,new())),("machines",()=>MachinesClick(this,new())),("automation",ShowAutomation),("licence",LicensePage),("live",()=>LiveClick(this,new())),("profiles",()=>BasicSettingsClick(this,new())),("activity",()=>ActivityClick(this,new()))})await CaptureView(view.Item1,view.Item2);
+        var original=accounts.ToArray();accounts.Clear();await CaptureView("accounts-empty",ShowAccounts);foreach(var a in original)accounts.Add(a);
+        refresh.Stop();closing=true;
     }
     private void AccountsClick(object sender, RoutedEventArgs e) => ShowAccounts();
     private void SignIn()
